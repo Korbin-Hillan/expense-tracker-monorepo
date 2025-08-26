@@ -11,3 +11,10 @@ IOS-expense-tracker/build/
 
 # Common
 .DS_Store
+.claude/
+
+# Secrets
+*.pem
+*.key
+.env
+.env.*
