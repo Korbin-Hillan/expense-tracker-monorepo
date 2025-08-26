@@ -17,10 +17,12 @@
 	<string>900568024097-fpr7jr6l41lpk89bk68skt054489jrr5.apps.googleusercontent.com</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
+        <key>NSAppTransportSecurity</key>
+        <dict>
+                <key>NSAllowsArbitraryLoadsInLocalNetwork</key>
+                <true/>
+        </dict>
+        <key>NSLocalNetworkUsageDescription</key>
+        <string>Allow access to your local network to upload imported files.</string>
 </dict>
 </plist>
