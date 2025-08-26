@@ -1,0 +1,13 @@
+# Node backend
+node_modules/
+.env
+dist/
+
+# iOS app
+IOS-expense-tracker/DerivedData/
+IOS-expense-tracker/build/
+*.xcuserdata/
+*.xcuserstate
+
+# Common
+.DS_Store
