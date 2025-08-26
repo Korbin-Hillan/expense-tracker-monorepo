@@ -1,6 +1,5 @@
 //
 //  ContentView.swift
-//  expense-tracker-backend
 //
 //  Created by Korbin Hillan on 8/23/25.
 //

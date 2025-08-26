@@ -1,6 +1,5 @@
 import { importPKCS8, SignJWT, exportJWK, JWTPayload } from "jose";
 import { createPublicKey } from "crypto";
-import { create } from "domain";
 
 const PRIV_PEM = process.env.APP_JWT_PRIVATE_PEM!;
 const PUB_PEM = process.env.APP_JWT_PUBLIC_PEM!;

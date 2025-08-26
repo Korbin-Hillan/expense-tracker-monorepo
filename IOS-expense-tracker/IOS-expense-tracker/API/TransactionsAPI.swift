@@ -24,6 +24,80 @@ struct CreateTransactionBody: Codable {
     let date: String          // ISO 8601
 }
 
+struct TransactionSummary: Codable {
+    let totalTransactions: Int
+    let totalIncome: Double
+    let totalExpenses: Double
+    let netAmount: Double
+    let categorySummary: [String: CategorySummary]
+    let dateRange: DateRange
+    
+    struct CategorySummary: Codable {
+        let count: Int
+        let total: Double
+    }
+    
+    struct DateRange: Codable {
+        let from: String
+        let to: String
+    }
+}
+
+struct ImportableTransaction: Codable {
+    let date: String
+    let description: String
+    let amount: Double
+    let type: String?
+    let category: String?
+    let note: String?
+}
+
+struct ImportError: Codable {
+    let row: Int
+    let field: String
+    let message: String
+}
+
+struct ImportResult: Codable {
+    let totalRows: Int
+    let validTransactions: Int
+    let errors: [ImportError]
+    let preview: [ImportableTransaction]
+    let duplicates: [ImportableTransaction]
+}
+
+struct ImportCommitResult: Codable {
+    let success: Bool
+    let totalProcessed: Int
+    let inserted: Int
+    let duplicatesSkipped: Int
+    let errors: [ImportError]
+}
+
+struct ColumnMapping: Codable {
+    let dateColumn: String
+    let descriptionColumn: String
+    let amountColumn: String
+    let typeColumn: String?
+    let categoryColumn: String?
+    let noteColumn: String?
+}
+
+struct FileColumnsResult: Codable {
+    let columns: [String]
+    let sheets: [String]
+    let suggestedMapping: SuggestedMapping
+    
+    struct SuggestedMapping: Codable {
+        let date: String?
+        let description: String?
+        let amount: String?
+        let type: String?
+        let category: String?
+        let note: String?
+    }
+}
+
 enum TxError: LocalizedError { case badResponse, server(String) }
 
 final class TransactionsAPI {
@@ -236,6 +310,327 @@ final class TransactionsAPI {
                 throw error
             } else {
                 throw TxError.server("Network request failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // MARK: - Export Methods
+    
+    func getSummary(startDate: String? = nil, endDate: String? = nil, category: String? = nil, type: String? = nil) async throws -> TransactionSummary {
+        print("📊 TransactionsAPI: Getting transaction summary")
+        
+        var comps = URLComponents(url: base.appendingPathComponent("/api/transactions/summary"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let startDate = startDate { queryItems.append(.init(name: "startDate", value: startDate)) }
+        if let endDate = endDate { queryItems.append(.init(name: "endDate", value: endDate)) }
+        if let category = category, category != "all" { queryItems.append(.init(name: "category", value: category)) }
+        if let type = type, type != "all" { queryItems.append(.init(name: "type", value: type)) }
+        
+        if !queryItems.isEmpty {
+            comps.queryItems = queryItems
+        }
+        
+        guard let url = comps.url else {
+            print("❌ TransactionsAPI: Failed to construct summary URL")
+            throw TxError.badResponse
+        }
+        
+        print("🌐 TransactionsAPI: Summary URL: \(url)")
+        
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        do {
+            let (data, resp) = try await AuthSession.shared.authedRequest(req)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                throw TxError.badResponse
+            }
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                throw TxError.server(msg)
+            }
+            
+            let summary = try JSONDecoder().decode(TransactionSummary.self, from: data)
+            print("✅ TransactionsAPI: Successfully loaded summary")
+            return summary
+        } catch {
+            print("❌ TransactionsAPI: Summary request failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Network request failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func exportCSV(startDate: String? = nil, endDate: String? = nil, category: String? = nil, type: String? = nil) async throws -> Data {
+        return try await exportFile(format: "csv", startDate: startDate, endDate: endDate, category: category, type: type)
+    }
+    
+    func exportExcel(startDate: String? = nil, endDate: String? = nil, category: String? = nil, type: String? = nil) async throws -> Data {
+        return try await exportFile(format: "excel", startDate: startDate, endDate: endDate, category: category, type: type)
+    }
+    
+    private func exportFile(format: String, startDate: String? = nil, endDate: String? = nil, category: String? = nil, type: String? = nil) async throws -> Data {
+        print("📁 TransactionsAPI: Exporting \(format) file")
+        
+        var comps = URLComponents(url: base.appendingPathComponent("/api/transactions/export/\(format)"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let startDate = startDate { queryItems.append(.init(name: "startDate", value: startDate)) }
+        if let endDate = endDate { queryItems.append(.init(name: "endDate", value: endDate)) }
+        if let category = category, category != "all" { queryItems.append(.init(name: "category", value: category)) }
+        if let type = type, type != "all" { queryItems.append(.init(name: "type", value: type)) }
+        
+        if !queryItems.isEmpty {
+            comps.queryItems = queryItems
+        }
+        
+        guard let url = comps.url else {
+            print("❌ TransactionsAPI: Failed to construct export URL")
+            throw TxError.badResponse
+        }
+        
+        print("🌐 TransactionsAPI: Export URL: \(url)")
+        
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        
+        do {
+            let (data, resp) = try await AuthSession.shared.authedRequest(req)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                throw TxError.badResponse
+            }
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                throw TxError.server(msg)
+            }
+            
+            print("✅ TransactionsAPI: Successfully exported \(format) file (\(data.count) bytes)")
+            return data
+        } catch {
+            print("❌ TransactionsAPI: Export request failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Network request failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // MARK: - Import Methods
+    
+    func getFileColumns(fileData: Data, fileName: String) async throws -> FileColumnsResult {
+        print("📋 TransactionsAPI: Getting columns for file: \(fileName)")
+        print("📋 TransactionsAPI: File data size: \(fileData.count) bytes")
+        print("📋 TransactionsAPI: Base URL: \(base.absoluteString)")
+        
+        let url = base.appendingPathComponent("/api/import/columns")
+        print("🌐 TransactionsAPI: Full request URL: \(url.absoluteString)")
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        print("📤 TransactionsAPI: Request body size: \(body.count) bytes")
+        
+        do {
+            print("🔐 TransactionsAPI: Making authenticated columns request...")
+            let (data, resp) = try await AuthSession.shared.authedRequest(request)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                print("❌ TransactionsAPI: No HTTP response for columns request")
+                throw TxError.badResponse
+            }
+            
+            print("📥 TransactionsAPI: Columns response status: \(http.statusCode)")
+            let responseBody = String(data: data, encoding: .utf8) ?? "<no data>"
+            print("📥 TransactionsAPI: Columns response body: \(responseBody)")
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                print("❌ TransactionsAPI: Columns server error \(http.statusCode): \(msg)")
+                throw TxError.server(msg)
+            }
+            
+            let result = try JSONDecoder().decode(FileColumnsResult.self, from: data)
+            print("✅ TransactionsAPI: Successfully detected columns")
+            return result
+        } catch {
+            print("❌ TransactionsAPI: Column detection failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Column detection failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func previewImport(fileData: Data, fileName: String, mapping: ColumnMapping, sheetName: String? = nil) async throws -> ImportResult {
+        print("👀 TransactionsAPI: Previewing import for file: \(fileName)")
+        
+        let url = base.appendingPathComponent("/api/import/preview")
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Add file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Add mapping fields
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"dateColumn\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(mapping.dateColumn)\r\n".data(using: .utf8)!)
+        
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"descriptionColumn\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(mapping.descriptionColumn)\r\n".data(using: .utf8)!)
+        
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"amountColumn\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(mapping.amountColumn)\r\n".data(using: .utf8)!)
+        
+        if let typeColumn = mapping.typeColumn {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"typeColumn\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(typeColumn)\r\n".data(using: .utf8)!)
+        }
+        
+        if let categoryColumn = mapping.categoryColumn {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"categoryColumn\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(categoryColumn)\r\n".data(using: .utf8)!)
+        }
+        
+        if let noteColumn = mapping.noteColumn {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"noteColumn\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(noteColumn)\r\n".data(using: .utf8)!)
+        }
+        
+        if let sheetName = sheetName {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"sheetName\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(sheetName)\r\n".data(using: .utf8)!)
+        }
+        
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        do {
+            let (data, resp) = try await AuthSession.shared.authedRequest(request)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                throw TxError.badResponse
+            }
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                throw TxError.server(msg)
+            }
+            
+            let result = try JSONDecoder().decode(ImportResult.self, from: data)
+            print("✅ TransactionsAPI: Successfully previewed import - \(result.validTransactions) valid transactions")
+            return result
+        } catch {
+            print("❌ TransactionsAPI: Import preview failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Import preview failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func commitImport(fileData: Data, fileName: String, mapping: ColumnMapping, skipDuplicates: Bool = true, sheetName: String? = nil) async throws -> ImportCommitResult {
+        print("💾 TransactionsAPI: Committing import for file: \(fileName)")
+        
+        let url = base.appendingPathComponent("/api/import/commit")
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Add file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Add mapping and settings
+        let formFields: [String: String] = [
+            "dateColumn": mapping.dateColumn,
+            "descriptionColumn": mapping.descriptionColumn,
+            "amountColumn": mapping.amountColumn,
+            "typeColumn": mapping.typeColumn ?? "",
+            "categoryColumn": mapping.categoryColumn ?? "",
+            "noteColumn": mapping.noteColumn ?? "",
+            "skipDuplicates": skipDuplicates ? "true" : "false",
+            "sheetName": sheetName ?? ""
+        ]
+        
+        for (key, value) in formFields where !value.isEmpty {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        do {
+            let (data, resp) = try await AuthSession.shared.authedRequest(request)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                throw TxError.badResponse
+            }
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                throw TxError.server(msg)
+            }
+            
+            let result = try JSONDecoder().decode(ImportCommitResult.self, from: data)
+            print("✅ TransactionsAPI: Successfully imported \(result.inserted) transactions")
+            return result
+        } catch {
+            print("❌ TransactionsAPI: Import commit failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Import commit failed: \(error.localizedDescription)")
             }
         }
     }

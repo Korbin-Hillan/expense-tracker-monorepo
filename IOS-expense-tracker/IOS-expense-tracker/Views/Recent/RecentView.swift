@@ -14,6 +14,8 @@ struct RecentView: View {
     @State private var showingEditTransaction = false
     @State private var selectedTransaction: TransactionDTO?
     @State private var showingDeleteConfirmation = false
+    @State private var showingExportSheet = false
+    @State private var showingImportSheet = false
     private let api = TransactionsAPI()
 
     var body: some View {
@@ -60,6 +62,22 @@ struct RecentView: View {
             .refreshable { await load() }
             .task { await load() }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    HStack {
+                        Button {
+                            showingImportSheet = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        
+                        Button {
+                            showingExportSheet = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     EditButton()
                 }
@@ -70,6 +88,18 @@ struct RecentView: View {
                 EditTransactionSheet(transaction: transaction) { updatedTransaction in
                     updateTransaction(updatedTransaction)
                 }
+            }
+        }
+        .sheet(isPresented: $showingExportSheet) {
+            ExportDataSheet()
+        }
+        .sheet(isPresented: $showingImportSheet) {
+            ImportDataSheetV2()
+        }
+        .onChange(of: showingImportSheet) { _, isShowing in
+            if !isShowing {
+                // Refresh transactions after import sheet is dismissed
+                Task { await load() }
             }
         }
         .alert("Delete Transaction", isPresented: $showingDeleteConfirmation) {

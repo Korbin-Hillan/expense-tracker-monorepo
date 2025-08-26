@@ -13,6 +13,7 @@ struct ReportsView: View {
     @State private var selectedTimeframe: TimeFrame = .month
     @State private var transactions: [TransactionDTO] = []
     @State private var loading = true
+    @State private var showingExportSheet = false
     @StateObject private var billStorage = BillStorage.shared
     private let api = TransactionsAPI()
     
@@ -152,10 +153,21 @@ struct ReportsView: View {
             .navigationTitle("Financial Reports")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showingExportSheet = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .sheet(isPresented: $showingExportSheet) {
+            ExportDataSheet()
         }
         .task { await loadTransactions() }
         .onChange(of: selectedTimeframe) { _ in

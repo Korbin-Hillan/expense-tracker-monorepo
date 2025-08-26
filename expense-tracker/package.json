@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
     "start": "nodemon --watch src --ext ts,json --exec tsx src/app.ts",
     "db:run": "tsx src/database/databaseConnection.ts"
   },
@@ -12,14 +12,23 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.3.0",
+    "jest": "^30.0.5",
     "nodemon": "^3.1.10",
+    "ts-jest": "^29.4.1",
     "tsx": "^4.20.4"
   },
   "dependencies": {
+    "@types/multer": "^2.0.0",
     "bcryptjs": "^3.0.2",
+    "csv-parse": "^6.1.0",
+    "csv-writer": "^1.6.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "mongodb": "6.18",
-    "node-fetch": "^3.3.2"
+    "multer": "^2.0.2",
+    "node-fetch": "^3.3.2",
+    "xlsx": "^0.18.5"
   }
 }

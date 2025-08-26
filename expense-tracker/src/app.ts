@@ -7,6 +7,7 @@ console.log("Audience:", process.env.AUTH0_AUDIENCE);
 import express, { type RequestHandler } from "express";
 import { ObjectId } from "mongodb";
 import { transactionsRouter } from "./routes/transactions.ts";
+import { importRouter } from "./routes/import.ts";
 
 import { router as authRouter } from "./routes/auth-exchange.ts";
 import { getJWKS } from "./keys.ts";
@@ -79,9 +80,11 @@ app.get("/api/me", meHandler);
 app.get("/api/user/me", meHandler);
 await ensureTransactionIndexes();
 app.use(transactionsRouter);
+app.use(importRouter);
 
 // ---- Server ----
 const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://192.168.0.119:${PORT}`);
+  console.log(`Also available at http://localhost:${PORT}`);
 });
