@@ -314,6 +314,46 @@ final class TransactionsAPI {
         }
     }
     
+    func clearAll() async throws {
+        print("🧹 TransactionsAPI: Clearing all transactions")
+        
+        let url = base.appendingPathComponent("/api/transactions/clear")
+        print("🌐 TransactionsAPI: Clear all URL: \(url)")
+        
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        do {
+            print("🔐 TransactionsAPI: Making authenticated clear all request...")
+            let (data, resp) = try await AuthSession.shared.authedRequest(req)
+            
+            guard let http = resp as? HTTPURLResponse else {
+                print("❌ TransactionsAPI: No HTTP response received for clear all")
+                throw TxError.badResponse
+            }
+            
+            print("📥 TransactionsAPI: Clear all response status: \(http.statusCode)")
+            let responseBody = String(data: data, encoding: .utf8) ?? "<no data>"
+            print("📥 TransactionsAPI: Clear all response body: \(responseBody)")
+            
+            guard (200...299).contains(http.statusCode) else {
+                let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
+                print("❌ TransactionsAPI: Clear all server error \(http.statusCode): \(msg)")
+                throw TxError.server(msg)
+            }
+            
+            print("✅ TransactionsAPI: All transactions cleared successfully")
+        } catch {
+            print("❌ TransactionsAPI: Clear all request failed: \(error)")
+            if error is TxError {
+                throw error
+            } else {
+                throw TxError.server("Network request failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     // MARK: - Export Methods
     
     func getSummary(startDate: String? = nil, endDate: String? = nil, category: String? = nil, type: String? = nil) async throws -> TransactionSummary {

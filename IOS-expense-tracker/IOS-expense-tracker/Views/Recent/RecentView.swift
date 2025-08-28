@@ -16,6 +16,7 @@ struct RecentView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingExportSheet = false
     @State private var showingImportSheet = false
+    @State private var showingClearAllConfirmation = false
     private let api = TransactionsAPI()
 
     var body: some View {
@@ -75,6 +76,13 @@ struct RecentView: View {
                         } label: {
                             Image(systemName: "square.and.arrow.up")
                         }
+                        
+                        Button {
+                            showingClearAllConfirmation = true
+                        } label: {
+                            Image(systemName: "trash.fill")
+                                .foregroundColor(.red)
+                        }
                     }
                 }
                 
@@ -111,6 +119,14 @@ struct RecentView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Are you sure you want to delete this transaction? This action cannot be undone.")
+        }
+        .alert("Clear All Transactions", isPresented: $showingClearAllConfirmation) {
+            Button("Clear All", role: .destructive) {
+                clearAllTransactions()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to delete all transactions? This action cannot be undone.")
         }
     }
 
@@ -185,6 +201,30 @@ struct RecentView: View {
                         print("🔄 RecentView: Reverted transaction due to server error")
                     }
                     self.error = "Failed to update transaction: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func clearAllTransactions() {
+        print("🧹 RecentView: Starting clear all transactions process")
+        
+        // Clear local UI immediately for responsiveness
+        txs.removeAll()
+        print("📱 RecentView: Cleared all transactions from local UI")
+        
+        Task {
+            do {
+                print("🌐 RecentView: Calling API clear all")
+                try await api.clearAll()
+                print("✅ RecentView: Successfully cleared all transactions from server")
+            } catch {
+                print("❌ RecentView: Failed to clear all transactions from server: \(error)")
+                // Reload transactions if clearing fails
+                await MainActor.run {
+                    Task { await load() }
+                    self.error = "Failed to clear all transactions: \(error.localizedDescription)"
+                    print("🔄 RecentView: Reloaded transactions due to server error")
                 }
             }
         }

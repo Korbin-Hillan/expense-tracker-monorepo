@@ -272,11 +272,15 @@ export class ImportService {
       throw new Error(`Invalid amount: "${amountValue}" (row ${rowIndex})`);
 
     // Type inference: we store amounts positive; sign derived from type
-    let type: "expense" | "income" = parsedAmt > 0 ? "income" : "expense";
+    let type: "expense" | "income";
     if (mapping.type && row[mapping.type]) {
       const t = String(row[mapping.type]).toLowerCase();
-      if (/(income|deposit|credit)/.test(t)) type = "income";
-      if (/(expense|debit|withdrawal)/.test(t)) type = "expense";
+      if (/(income|deposit|credit|refund|payment)/.test(t)) type = "income";
+      else if (/(expense|debit|withdrawal|purchase|charge)/.test(t))
+        type = "expense";
+      else type = parsedAmt < 0 ? "income" : "expense";
+    } else {
+      type = parsedAmt < 0 ? "income" : "expense";
     }
 
     const category =
@@ -290,10 +294,10 @@ export class ImportService {
         : undefined;
 
     return {
-      date: parsedDate, // yyyy-mm-dd
+      date: parsedDate, // stays yyyy-mm-dd
       description: String(description).trim(),
-      amount: Math.abs(parsedAmt), // always positive
-      type,
+      amount: Math.abs(parsedAmt), // store positive
+      type, // ✅ now correct
       category,
       note,
     };

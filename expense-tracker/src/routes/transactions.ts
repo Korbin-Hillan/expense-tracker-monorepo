@@ -158,6 +158,36 @@ transactionsRouter.put(
   }
 );
 
+// DELETE /api/transactions/clear - Clear all transactions for the user
+transactionsRouter.delete(
+  "/api/transactions/clear",
+  requireAppJWT,
+  async (req, res) => {
+    console.log("🧹 DELETE /clear request received");
+    const userId = (req as any).userId as string;
+
+    console.log("👤 User ID attempting to clear all transactions:", userId);
+
+    const col = await transactionsCollection();
+    console.log("🔍 Attempting to delete all transactions for user:", userId);
+
+    const result = await col.deleteMany({
+      userId: new ObjectId(userId), // Ensure user can only delete their own transactions
+    });
+
+    console.log("📊 Clear all operation result:", {
+      deletedCount: result.deletedCount,
+      acknowledged: result.acknowledged,
+    });
+
+    console.log(`✅ Successfully cleared ${result.deletedCount} transactions`);
+    res.json({ 
+      success: true, 
+      deletedCount: result.deletedCount 
+    });
+  }
+);
+
 // DELETE /api/transactions/:id - Delete a transaction
 transactionsRouter.delete(
   "/api/transactions/:id",

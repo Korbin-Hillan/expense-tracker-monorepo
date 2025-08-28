@@ -45,11 +45,23 @@ function makeHash(tx: {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
+// routes/importRouter.ts
 function getMapping(body: any): ColumnMapping {
+  const pick = (...c: (string | undefined)[]) =>
+    c.find((x) => typeof x === "string" && x.trim().length > 0) ?? "";
+
   return {
-    date: body.dateColumn || "Date",
-    description: body.descriptionColumn || "Description",
-    amount: body.amountColumn || "Amount",
+    // ✅ prefer what the client sent; then common date headers
+    date: pick(
+      body.dateColumn,
+      "Trans. Date",
+      "Transaction Date",
+      "Posted Date",
+      "Post Date",
+      "Date"
+    ),
+    description: pick(body.descriptionColumn, "Description", "Memo", "Details"),
+    amount: pick(body.amountColumn, "Amount", "Debit", "Credit", "Value"),
     type: body.typeColumn,
     category: body.categoryColumn,
     note: body.noteColumn,
@@ -126,6 +138,7 @@ importRouter.post(
         return res.status(400).json({ error: "Invalid user id" });
 
       const mapping = getMapping(req.body);
+      console.log("🗺️ mapping from client:", mapping);
       requireMapping(mapping);
 
       const kind = detectKind(req.file);

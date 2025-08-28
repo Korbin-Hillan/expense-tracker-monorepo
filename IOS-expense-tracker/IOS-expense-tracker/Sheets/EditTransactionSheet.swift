@@ -18,6 +18,7 @@ struct EditTransactionSheet: View {
     @State private var amount: String
     @State private var category: String
     @State private var type: String
+    @State private var date: Date
     
     private let categories = ["Food", "Transport", "Entertainment", "Shopping", "Bills", "Healthcare", "Education", "Travel", "Other"]
     
@@ -29,6 +30,7 @@ struct EditTransactionSheet: View {
         _amount = State(initialValue: String(transaction.amount))
         _category = State(initialValue: transaction.category)
         _type = State(initialValue: transaction.type)
+        _date = State(initialValue: ISO8601DateFormatter().date(from: transaction.date) ?? Date())
     }
     
     var body: some View {
@@ -55,6 +57,8 @@ struct EditTransactionSheet: View {
                             Text(cat).tag(cat)
                         }
                     }
+                    
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
                 }
                 
                 Section("Transaction Info") {
@@ -102,7 +106,7 @@ struct EditTransactionSheet: View {
             amount: transactionAmount,
             category: category,
             note: note.isEmpty ? nil : note,
-            date: transaction.date
+            date: ISO8601DateFormatter().string(from: date)
         )
         
         onSave(updatedTransaction)
