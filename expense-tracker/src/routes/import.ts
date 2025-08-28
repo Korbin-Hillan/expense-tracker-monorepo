@@ -1,290 +1,394 @@
+// routes/importRouter.ts
 import { Router } from "express";
 import multer from "multer";
 import { ObjectId } from "mongodb";
 import { requireAppJWT } from "../middleware/auth.ts";
 import { transactionsCollection } from "../database/transactions.ts";
 import { ImportService, ColumnMapping } from "../services/importService.ts";
+import * as XLSX from "xlsx";
+import { parse as csvParseSync } from "csv-parse/sync";
+import crypto from "crypto";
 
 export const importRouter = Router();
 
-// Configure multer for file uploads (memory storage for processing)
-const upload = multer({ 
+/** ---------- helpers ---------- */
+
+type FileKind = "csv" | "xlsx" | "xls";
+
+function detectKind(file: Express.Multer.File): FileKind | null {
+  const name = file.originalname.toLowerCase();
+  const mt = (file.mimetype || "").toLowerCase();
+  if (
+    name.endsWith(".csv") ||
+    mt.includes("csv") ||
+    mt === "application/vnd.ms-excel"
+  )
+    return "csv";
+  if (name.endsWith(".xlsx") || mt.includes("spreadsheet")) return "xlsx";
+  if (name.endsWith(".xls")) return "xls";
+  return null;
+}
+
+// Stable dedupe hash (you can move this into ImportService and reuse)
+function makeHash(tx: {
+  accountId?: string;
+  date: string;
+  amount: number;
+  description: string;
+}) {
+  const key = [
+    tx.accountId ?? "",
+    tx.date,
+    tx.amount.toFixed(2),
+    tx.description.toLowerCase().replace(/\s+/g, " ").trim(),
+  ].join("|");
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+function getMapping(body: any): ColumnMapping {
+  return {
+    date: body.dateColumn || "Date",
+    description: body.descriptionColumn || "Description",
+    amount: body.amountColumn || "Amount",
+    type: body.typeColumn,
+    category: body.categoryColumn,
+    note: body.noteColumn,
+  };
+}
+
+function sniffDelimiter(firstLine: string): string {
+  const counts = {
+    ",": (firstLine.match(/,/g) || []).length,
+    ";": (firstLine.match(/;/g) || []).length,
+    "\t": (firstLine.match(/\t/g) || []).length,
+  };
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/** ---------- multer ---------- */
+
+// Keep memory storage for now; consider disk storage for big files.
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
+  limits: { fileSize: 25 * 1024 * 1024 }, // bump a bit; XLSX grows fast
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      'text/csv',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/plain'
-    ];
-    
-    if (allowedTypes.includes(file.mimetype) || 
-        file.originalname.endsWith('.csv') || 
-        file.originalname.endsWith('.xlsx') ||
-        file.originalname.endsWith('.xls')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only CSV and Excel files are allowed.'));
-    }
-  }
+    const ok =
+      detectKind(file) !== null ||
+      ["text/plain", "application/vnd.ms-excel", "text/csv"].includes(
+        file.mimetype
+      );
+    cb(
+      ok ? null : new Error("Invalid file type. Only CSV/XLSX/XLS allowed."),
+      ok as any
+    );
+  },
 });
 
-// POST /api/import/preview - Preview import data before committing
+/** ---------- /api/import/preview ---------- */
+
+function requireMapping(m: ColumnMapping) {
+  const missing = [
+    !m.date?.trim() && "dateColumn",
+    !m.description?.trim() && "descriptionColumn",
+    !m.amount?.trim() && "amountColumn",
+  ].filter(Boolean);
+  if (missing.length) {
+    const e: any = new Error(
+      `Missing required column(s): ${missing.join(", ")}`
+    );
+    e.status = 400;
+    throw e;
+  }
+}
+
 importRouter.post(
   "/api/import/preview",
+  (req, _res, next) => {
+    console.log("➡️ /api/import/preview PRE headers:", req.headers);
+    next();
+  },
   requireAppJWT,
-  upload.single('file'),
+  upload.single("file"),
+  (req, _res, next) => {
+    console.log(
+      "📦 multer finished. req.file?",
+      !!req.file,
+      "body keys:",
+      Object.keys(req.body)
+    );
+    next();
+  },
   async (req, res) => {
     try {
       const userId = (req as any).userId as string;
-      
-      if (!req.file) {
-        res.status(400).json({ error: "No file uploaded" });
-        return;
-      }
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      if (!ObjectId.isValid(userId))
+        return res.status(400).json({ error: "Invalid user id" });
 
-      // Parse column mapping from request body
-      const mapping: ColumnMapping = {
-        date: req.body.dateColumn || 'Date',
-        description: req.body.descriptionColumn || 'Description',
-        amount: req.body.amountColumn || 'Amount',
-        type: req.body.typeColumn,
-        category: req.body.categoryColumn,
-        note: req.body.noteColumn
-      };
+      const mapping = getMapping(req.body);
+      requireMapping(mapping);
 
-      console.log(`📋 Import Preview: Processing ${req.file.originalname} for user ${userId}`);
-      console.log(`📋 Column mapping:`, mapping);
+      const kind = detectKind(req.file);
+      if (!kind)
+        return res.status(400).json({ error: "Unsupported file format" });
 
-      let importResult;
-      
-      // Parse based on file type
-      if (req.file.mimetype.includes('csv') || req.file.originalname.endsWith('.csv')) {
-        importResult = await ImportService.parseCSV(req.file.buffer, mapping);
-      } else if (req.file.mimetype.includes('excel') || req.file.mimetype.includes('spreadsheet') || 
-                 req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
-        const sheetName = req.body.sheetName;
-        importResult = await ImportService.parseExcel(req.file.buffer, mapping, sheetName);
-      } else {
-        res.status(400).json({ error: "Unsupported file format" });
-        return;
-      }
+      // Single parse call for a fast preview
+      const parsed = await ImportService.parse(req.file.buffer, {
+        mapping,
+        kind,
+        previewRows: 20,
+      });
+      console.log("🧪 preview totals", {
+        totalRows: parsed.totalRows,
+        previewRows: parsed.preview.length,
+        errors: parsed.errors.length,
+      });
 
-      // Check for duplicates against existing transactions
+      const preview = parsed.preview;
+
+      // Lightweight duplicate estimate using recent hashes (if available) or field comparison
       const col = await transactionsCollection();
-      const existingTransactions = await col
+      const recent = await col
         .find({ userId: new ObjectId(userId) })
+        .project({ dedupeHash: 1, date: 1, amount: 1, note: 1 })
         .sort({ date: -1 })
-        .limit(1000) // Check last 1000 transactions for duplicates
+        .limit(5000)
         .toArray();
 
-      const duplicates = ImportService.detectDuplicates(
-        importResult.preview, 
-        existingTransactions
+      const recentHashes = new Set(
+        recent.filter((r) => r.dedupeHash).map((r) => r.dedupeHash as string)
       );
 
-      importResult.duplicates = duplicates;
-
-      console.log(`✅ Import Preview: Found ${importResult.validTransactions} valid transactions, ${importResult.errors.length} errors, ${duplicates.length} potential duplicates`);
-
-      res.json(importResult);
-    } catch (error) {
-      console.error("Import preview error:", error);
-      res.status(500).json({ 
-        error: "Import preview failed", 
-        message: error instanceof Error ? error.message : "Unknown error" 
+      const duplicates = preview.filter((tx) => {
+        const hash = makeHash({
+          date: tx.date,
+          amount: tx.amount,
+          description: tx.description,
+        });
+        if (recentHashes.size) return recentHashes.has(hash);
+        // fallback if no hashes yet
+        return recent.some(
+          (r) =>
+            r.date.toISOString().slice(0, 10) === tx.date &&
+            Math.abs(r.amount - tx.amount) < 0.01 &&
+            (r.note ?? "").toLowerCase().trim() ===
+              tx.description.toLowerCase().trim()
+        );
       });
+
+      return res.json({
+        previewRows: parsed.preview,
+        totalRows: parsed.totalRows,
+        errors: parsed.errors,
+        duplicates,
+        suggestedMapping: {
+          // if you exposed suggestMapping in ImportService, call it here instead
+          date: findBestColumn(Object.keys(preview[0] ?? {}), [
+            "date",
+            "transaction date",
+            "posted date",
+            "trans date",
+            "post date",
+          ]),
+        },
+      });
+    } catch (err: any) {
+      const status = err?.status ?? 500;
+      console.error("Import preview error:", err);
+      return res.status(status).json({ error: String(err.message || err) });
     }
   }
 );
 
-// POST /api/import/commit - Actually import the data
+/** ---------- /api/import/commit ---------- */
+
 importRouter.post(
   "/api/import/commit",
   requireAppJWT,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     try {
       const userId = (req as any).userId as string;
-      
-      if (!req.file) {
-        res.status(400).json({ error: "No file uploaded" });
-        return;
-      }
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      if (!ObjectId.isValid(userId))
+        return res.status(400).json({ error: "Invalid user id" });
 
-      // Parse settings
-      const mapping: ColumnMapping = {
-        date: req.body.dateColumn || 'Date',
-        description: req.body.descriptionColumn || 'Description',
-        amount: req.body.amountColumn || 'Amount',
-        type: req.body.typeColumn,
-        category: req.body.categoryColumn,
-        note: req.body.noteColumn
-      };
+      const mapping = getMapping(req.body);
+      const kind = detectKind(req.file);
+      if (!kind)
+        return res.status(400).json({ error: "Unsupported file format" });
 
-      const skipDuplicates = req.body.skipDuplicates === 'true';
-      const overwriteDuplicates = req.body.overwriteDuplicates === 'true';
+      const skipDuplicates = req.body.skipDuplicates === "true";
+      const overwriteDuplicates = req.body.overwriteDuplicates === "true";
 
-      console.log(`💾 Import Commit: Processing ${req.file.originalname} for user ${userId}`);
-      console.log(`💾 Skip duplicates: ${skipDuplicates}, Overwrite: ${overwriteDuplicates}`);
-
-      let importResult;
-      
-      // Parse the file
-      if (req.file.mimetype.includes('csv') || req.file.originalname.endsWith('.csv')) {
-        importResult = await ImportService.parseCSV(req.file.buffer, mapping);
-      } else if (req.file.mimetype.includes('excel') || req.file.mimetype.includes('spreadsheet') ||
-                 req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
-        const sheetName = req.body.sheetName;
-        importResult = await ImportService.parseExcel(req.file.buffer, mapping, sheetName);
-      } else {
-        res.status(400).json({ error: "Unsupported file format" });
-        return;
-      }
-
-      // Get all transactions from the import (not just preview)
-      let allTransactions;
-      if (req.file.mimetype.includes('csv') || req.file.originalname.endsWith('.csv')) {
-        const fullResult = await ImportService.parseCSV(req.file.buffer, mapping);
-        allTransactions = [...fullResult.preview, ...importResult.preview.slice(10)]; // This is a simplified approach
-      } else {
-        const fullResult = await ImportService.parseExcel(req.file.buffer, mapping, req.body.sheetName);
-        allTransactions = [...fullResult.preview, ...importResult.preview.slice(10)]; // This is a simplified approach
-      }
-
-      // Handle duplicates
-      const col = await transactionsCollection();
-      const existingTransactions = await col
-        .find({ userId: new ObjectId(userId) })
-        .sort({ date: -1 })
-        .limit(1000)
-        .toArray();
-
-      const duplicates = ImportService.detectDuplicates(allTransactions, existingTransactions);
-      
-      let transactionsToImport = allTransactions;
-      
-      if (skipDuplicates && duplicates.length > 0) {
-        // Remove duplicates from import
-        transactionsToImport = allTransactions.filter(tx => 
-          !duplicates.some(dup => 
-            dup.date === tx.date && 
-            Math.abs(dup.amount - tx.amount) < 0.01 &&
-            dup.description === tx.description
-          )
-        );
-        console.log(`🔄 Skipping ${duplicates.length} duplicate transactions`);
-      }
-
-      // Convert to TransactionDoc format
-      const transactionDocs = transactionsToImport.map(tx => 
-        ImportService.convertToTransactionDoc(tx, new ObjectId(userId))
+      // Parse FULL file once
+      const { rows, totalRows, errors } = await ImportService.parse(
+        req.file.buffer,
+        { mapping, kind }
       );
 
-      // Insert transactions
-      let insertedCount = 0;
-      if (transactionDocs.length > 0) {
-        const result = await col.insertMany(transactionDocs);
-        insertedCount = result.insertedCount;
-      }
+      const col = await transactionsCollection();
+      const userObjectId = new ObjectId(userId);
 
-      console.log(`✅ Import Complete: Inserted ${insertedCount} transactions`);
+      // Build bulk upserts with stable hash
+      const ops = rows.map((tx) => {
+        const dedupeHash = makeHash({
+          date: tx.date,
+          amount: tx.amount,
+          description: tx.description,
+        });
+        const doc = ImportService.convertToTransactionDoc(
+          tx,
+          userObjectId,
+          dedupeHash as any
+        );
+        return {
+          updateOne: {
+            filter: { userId: userObjectId, dedupeHash },
+            update: overwriteDuplicates ? { $set: doc } : { $setOnInsert: doc },
+            upsert: true,
+          },
+        };
+      });
 
-      res.json({
+      const result = ops.length
+        ? await col.bulkWrite(ops, { ordered: false })
+        : { upsertedCount: 0, modifiedCount: 0 };
+      const inserted = (result as any).upsertedCount ?? 0;
+      const updated = overwriteDuplicates
+        ? (result as any).modifiedCount ?? 0
+        : 0;
+
+      // If skipping duplicates and not overwriting, duplicatesSkipped = total - inserted
+      const duplicatesSkipped =
+        skipDuplicates && !overwriteDuplicates ? rows.length - inserted : 0;
+
+      return res.json({
         success: true,
-        totalProcessed: allTransactions.length,
-        inserted: insertedCount,
-        duplicatesSkipped: skipDuplicates ? duplicates.length : 0,
-        errors: importResult.errors,
-        summary: {
-          totalRows: importResult.totalRows,
-          validTransactions: allTransactions.length,
-          duplicatesFound: duplicates.length
-        }
+        totalProcessed: rows.length,
+        inserted,
+        updated,
+        duplicatesSkipped,
+        errors,
+        summary: { totalRows },
       });
-    } catch (error) {
-      console.error("Import commit error:", error);
-      res.status(500).json({ 
-        error: "Import failed", 
-        message: error instanceof Error ? error.message : "Unknown error" 
-      });
+    } catch (err) {
+      console.error("Import commit error:", err);
+      return res.status(500).json({ error: "Import failed" });
     }
   }
 );
 
-// GET /api/import/columns - Get available columns from uploaded file for mapping
+/** ---------- /api/import/columns (POST: upload a file to inspect) ---------- */
+
 importRouter.post(
   "/api/import/columns",
   requireAppJWT,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     try {
-      if (!req.file) {
-        res.status(400).json({ error: "No file uploaded" });
-        return;
-      }
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+      const kind = detectKind(req.file);
+      if (!kind)
+        return res.status(400).json({ error: "Unsupported file format" });
 
       let columns: string[] = [];
       let sheets: string[] = [];
 
-      if (req.file.mimetype.includes('csv') || req.file.originalname.endsWith('.csv')) {
-        // For CSV, parse first few lines to get headers
-        const csvData = req.file.buffer.toString('utf8');
-        const lines = csvData.split('\n');
-        if (lines.length > 0) {
-          columns = lines[0].split(',').map(col => col.trim().replace(/"/g, ''));
-        }
-      } else if (req.file.mimetype.includes('excel') || req.file.mimetype.includes('spreadsheet') ||
-                 req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
-        // For Excel, get sheet names and headers
-        const workbook = require('xlsx').read(req.file.buffer, { type: 'buffer' });
-        sheets = workbook.SheetNames;
-        
-        if (sheets.length > 0) {
-          const firstSheet = workbook.Sheets[sheets[0]];
-          const data = require('xlsx').utils.sheet_to_json(firstSheet, { header: 1 });
-          if (data.length > 0) {
-            columns = data[0] as string[];
-          }
+      if (kind === "csv") {
+        const head = req.file.buffer.slice(0, 256 * 1024).toString("utf8"); // peek first chunk
+        const firstLine =
+          head.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
+        const delimiter = sniffDelimiter(firstLine);
+
+        const rows: any[] = csvParseSync(req.file.buffer, {
+          bom: true,
+          to: 1, // only header row
+          relax_column_count: true,
+          delimiter,
+        });
+        // rows[0] is array of header cells; handle quotes
+        columns = Array.isArray(rows[0])
+          ? rows[0].map((c: any) =>
+              String(c ?? "")
+                .replace(/"/g, "")
+                .trim()
+            )
+          : [];
+      } else {
+        const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+        sheets = wb.SheetNames;
+        if (sheets.length) {
+          const sheet = wb.Sheets[sheets[0]];
+          const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+          columns = (aoa[0] ?? []).map((c) => String(c ?? "").trim());
         }
       }
 
-      res.json({
+      return res.json({
         columns,
         sheets,
         suggestedMapping: {
-          date: findBestColumn(columns, ['date', 'transaction date', 'posted date', 'trans date', 'post date']),
-          description: findBestColumn(columns, ['description', 'memo', 'details', 'transaction', 'merchant']),
-          amount: findBestColumn(columns, ['amount', 'debit', 'credit', 'value', 'total', '$']),
-          type: findBestColumn(columns, ['type', 'transaction type', 'debit/credit', 'dr/cr']),
-          category: findBestColumn(columns, ['category', 'merchant category', 'classification']),
-          note: findBestColumn(columns, ['note', 'memo', 'reference', 'check number'])
-        }
+          date: findBestColumn(columns, [
+            "date",
+            "transaction date",
+            "posted date",
+            "trans date",
+            "post date",
+          ]),
+          description: findBestColumn(columns, [
+            "description",
+            "memo",
+            "details",
+            "transaction",
+            "merchant",
+            "payee",
+          ]),
+          amount: findBestColumn(columns, [
+            "amount",
+            "debit",
+            "credit",
+            "value",
+            "total",
+            "$",
+          ]),
+          type: findBestColumn(columns, [
+            "type",
+            "transaction type",
+            "debit/credit",
+            "dr/cr",
+          ]),
+          category: findBestColumn(columns, [
+            "category",
+            "merchant category",
+            "classification",
+          ]),
+          note: findBestColumn(columns, [
+            "note",
+            "memo",
+            "reference",
+            "check number",
+          ]),
+        },
       });
-    } catch (error) {
-      console.error("Column detection error:", error);
-      res.status(500).json({ 
-        error: "Failed to detect columns",
-        message: error instanceof Error ? error.message : "Unknown error" 
-      });
+    } catch (err) {
+      console.error("Column detection error:", err);
+      return res.status(500).json({ error: "Failed to detect columns" });
     }
   }
 );
 
-// Helper function to find best matching column
-function findBestColumn(availableColumns: string[], searchTerms: string[]): string | undefined {
-  const normalizedColumns = availableColumns.map(col => col.toLowerCase().trim());
-  
+/** ---------- helpers ---------- */
+
+function findBestColumn(
+  availableColumns: string[],
+  searchTerms: string[]
+): string | undefined {
+  const norm = availableColumns.map((c) => c.toLowerCase().trim());
   for (const term of searchTerms) {
-    const match = normalizedColumns.find(col => col.includes(term));
-    if (match) {
-      return availableColumns[normalizedColumns.indexOf(match)];
-    }
+    const i = norm.findIndex((c) => c.includes(term));
+    if (i >= 0) return availableColumns[i];
   }
-  
   return undefined;
 }
-

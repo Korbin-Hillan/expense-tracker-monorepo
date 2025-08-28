@@ -14,6 +14,7 @@ struct ReportsView: View {
     @State private var transactions: [TransactionDTO] = []
     @State private var loading = true
     @State private var showingExportSheet = false
+    @State private var showingImportSheet = false
     @StateObject private var billStorage = BillStorage.shared
     private let api = TransactionsAPI()
     
@@ -155,6 +156,13 @@ struct ReportsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
+                        showingImportSheet = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
                         showingExportSheet = true
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -168,6 +176,9 @@ struct ReportsView: View {
         }
         .sheet(isPresented: $showingExportSheet) {
             ExportDataSheet()
+        }
+        .sheet(isPresented: $showingImportSheet) {
+            ImportDataSheet()
         }
         .task { await loadTransactions() }
         .onChange(of: selectedTimeframe) { _ in

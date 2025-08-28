@@ -94,7 +94,7 @@ struct RecentView: View {
             ExportDataSheet()
         }
         .sheet(isPresented: $showingImportSheet) {
-            ImportDataSheetV2()
+            ImportDataSheet()
         }
         .onChange(of: showingImportSheet) { _, isShowing in
             if !isShowing {

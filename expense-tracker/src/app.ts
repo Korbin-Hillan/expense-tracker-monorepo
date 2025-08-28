@@ -16,6 +16,7 @@ import { createPublicKey } from "crypto";
 import { getDb, usersCollection } from "./database/databaseConnection.js";
 import { toApiUser } from "./types/user.ts";
 import { ensureTransactionIndexes } from "./database/transactions.ts";
+import http from "http";
 
 const app = express();
 app.use(express.json());
@@ -84,7 +85,7 @@ app.use(importRouter);
 
 // ---- Server ----
 const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://192.168.0.119:${PORT}`);
   console.log(`Also available at http://localhost:${PORT}`);
 });
