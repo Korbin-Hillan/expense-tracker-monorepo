@@ -201,7 +201,7 @@ struct ProfileCard: View {
         )
         .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
         .sheet(isPresented: $showingAccountSettings) {
-            AccountSettingsView()
+            AccountSettingsView(onSignOut: onSignOut)
         }
         .task {
             await loadProfileStats()

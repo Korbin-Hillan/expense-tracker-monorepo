@@ -12,6 +12,7 @@ import UserNotifications
 struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) var colorScheme
+    var onSignOut: () -> Void = {}
     
     @State private var notificationsEnabled = UserSettings.shared.notificationsEnabled
     @State private var biometricEnabled = UserSettings.shared.biometricEnabled
@@ -19,6 +20,9 @@ struct AccountSettingsView: View {
     @State private var showingDarkModeOptions = false
     @State private var showingExportSheet = false
     @State private var showingDeleteAlert = false
+    @State private var showingDeleteConfirmation = false
+    @State private var deleteConfirmationText = ""
+    @State private var isDeletingAccount = false
     
     private let darkModeOptions = ["Light", "Dark", "System"]
     
@@ -33,7 +37,7 @@ struct AccountSettingsView: View {
                         Text("Notifications")
                         Spacer()
                         Toggle("", isOn: $notificationsEnabled)
-                            .onChange(of: notificationsEnabled) { value in
+                            .onChange(of: notificationsEnabled) { _, value in
                                 updateNotificationSettings(value)
                             }
                     }
@@ -44,7 +48,7 @@ struct AccountSettingsView: View {
                         Text("Face ID / Touch ID")
                         Spacer()
                         Toggle("", isOn: $biometricEnabled)
-                            .onChange(of: biometricEnabled) { value in
+                            .onChange(of: biometricEnabled) { _, value in
                                 updateBiometricSettings(value)
                             }
                     }
@@ -131,12 +135,25 @@ struct AccountSettingsView: View {
                 ExportDataSheet()
             }
             .alert("Delete Account", isPresented: $showingDeleteAlert) {
-                Button("Delete", role: .destructive) {
-                    deleteAccount()
+                Button("Continue", role: .destructive) {
+                    showingDeleteConfirmation = true
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This will permanently delete your account and all data. This action cannot be undone.")
+            }
+            .sheet(isPresented: $showingDeleteConfirmation) {
+                DeleteAccountConfirmationView(
+                    confirmationText: $deleteConfirmationText,
+                    isDeleting: $isDeletingAccount,
+                    onDelete: {
+                        deleteAccount()
+                    },
+                    onCancel: {
+                        showingDeleteConfirmation = false
+                        deleteConfirmationText = ""
+                    }
+                )
             }
         }
     }
@@ -195,8 +212,60 @@ struct AccountSettingsView: View {
     }
     
     private func deleteAccount() {
-        print("🗑️ Deleting account...")
-        // TODO: Implement account deletion API call
+        isDeletingAccount = true
+        
+        Task {
+            do {
+                // Make API call to delete account on server
+                let userAPI = UserAPI()
+                let response = try await userAPI.deleteAccount()
+                
+                Logger.shared.info("Account deletion successful: \(response.message)")
+                Logger.shared.info("Deleted data summary: transactions=\(response.deletedData.transactions), expenses=\(response.deletedData.expenses)")
+                
+                // Clear all local data after successful server deletion
+                await MainActor.run {
+                    clearLocalData()
+                    isDeletingAccount = false
+                    showingDeleteConfirmation = false
+                    signOutUser()
+                }
+                
+            } catch {
+                Logger.shared.error("Failed to delete account: \(error)")
+                
+                await MainActor.run {
+                    isDeletingAccount = false
+                    // Show error to user
+                    print("Failed to delete account: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    private func clearLocalData() {
+        // Clear UserDefaults
+        let userDefaults = UserDefaults.standard
+        userDefaults.removeObject(forKey: "notificationsEnabled")
+        userDefaults.removeObject(forKey: "biometricEnabled")
+        userDefaults.removeObject(forKey: "darkModePreference")
+        
+        // Clear any cached tokens or user data
+        clearTokens()
+    }
+    
+    
+    private func signOutUser() {
+        // This should trigger the app to return to login screen
+        clearTokens()
+        
+        // Close the settings sheet first, then trigger sign out
+        dismiss()
+        
+        // Call the onSignOut callback to navigate to login
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            onSignOut()
+        }
     }
     
     private func openHelpSupport() {

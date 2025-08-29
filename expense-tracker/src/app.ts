@@ -85,6 +85,71 @@ const meHandler: RequestHandler = async (req, res) => {
 // Register on both paths (no _router hacks, no redirect needed)
 app.get("/api/me", meHandler);
 app.get("/api/user/me", meHandler);
+
+// DELETE account endpoint
+const deleteAccountHandler: RequestHandler = async (req, res) => {
+  try {
+    const payload = await verifyAppJWT(req.headers.authorization);
+    const userId = new ObjectId(String(payload.sub));
+
+    console.log(`🗑️ DELETE /api/account: Deleting account for user ${userId}`);
+    
+    const db = await getDb();
+    
+    // Delete all user data in the correct order to avoid foreign key issues
+    const operations = [
+      // 1. Delete refresh tokens
+      db.collection("refresh_tokens").deleteMany({ userId }),
+      
+      // 2. Delete transactions  
+      db.collection("transactions").deleteMany({ userId }),
+      
+      // 3. Delete expenses
+      db.collection("expenses").deleteMany({ userId }),
+      
+      // 4. Finally delete the user
+      usersCollection(db).deleteOne({ _id: userId })
+    ];
+
+    const results = await Promise.all(operations);
+    
+    console.log(`✅ DELETE /api/account: Deleted data for user ${userId}:`, {
+      refreshTokens: results[0].deletedCount,
+      transactions: results[1].deletedCount, 
+      expenses: results[2].deletedCount,
+      user: results[3].deletedCount
+    });
+
+    if (results[3].deletedCount === 0) {
+      res.status(404).json({ error: "user_not_found" });
+      return;
+    }
+
+    res.json({ 
+      success: true, 
+      message: "Account and all data successfully deleted",
+      deletedData: {
+        refreshTokens: results[0].deletedCount,
+        transactions: results[1].deletedCount,
+        expenses: results[2].deletedCount
+      }
+    });
+    
+  } catch (e) {
+    console.error("DELETE /api/account error:", e);
+    
+    if (e instanceof Error) {
+      if (e.message.includes("missing_authorization") || e.message.includes("invalid_authorization")) {
+        res.status(401).json({ error: "invalid_or_missing_authorization_header" });
+        return;
+      }
+    }
+    
+    res.status(401).json({ error: "invalid_or_missing_app_jwt" });
+  }
+};
+
+app.delete("/api/account", deleteAccountHandler);
 await ensureTransactionIndexes();
 app.use(transactionsRouter);
 app.use(importRouter);
