@@ -182,7 +182,7 @@ struct ReportsView: View {
             ImportDataSheet()
         }
         .task { await loadTransactions() }
-        .onChange(of: selectedTimeframe) { _ in
+        .onChange(of: selectedTimeframe) {
             Task { await loadTransactions() }
         }
     }

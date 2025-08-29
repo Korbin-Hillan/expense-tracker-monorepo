@@ -195,13 +195,11 @@ struct RecentView: View {
                 print("❌ RecentView: Failed to update transaction on server: \(error)")
                 // Revert the local change if server update fails
                 await MainActor.run {
-                    if let index = txs.firstIndex(where: { $0.id == transaction.id }) {
-                        // Reload the transaction list to get the original data
-                        Task { await load() }
-                        print("🔄 RecentView: Reverted transaction due to server error")
-                    }
+                    Task { await load() } // or just await load() if `load()` is @MainActor
+                    print("🔄 RecentView: Reverted transaction due to server error")
                     self.error = "Failed to update transaction: \(error.localizedDescription)"
                 }
+
             }
         }
     }

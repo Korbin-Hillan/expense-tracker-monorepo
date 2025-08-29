@@ -65,19 +65,8 @@ struct QuickGroceryIntent: AppIntent {
     static var openAppWhenRun: Bool = false
     
     func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
-        let noteText = store != nil ? "Groceries at \(store!)" : "Groceries"
         
         do {
-            let transactionBody = CreateTransactionBody(
-                type: "expense",
-                amount: amount,
-                category: "Groceries",
-                note: noteText,
-                date: ISO8601DateFormatter().string(from: Date())
-            )
-            
-            let api = TransactionsAPI()
-            let transaction = try await api.create(transactionBody)
             
             let dialogText = if let store = store {
                 "Logged $\(String(format: "%.2f", amount)) grocery expense at \(store)"
@@ -93,17 +82,6 @@ struct QuickGroceryIntent: AppIntent {
                     category: "Groceries",
                     merchant: store,
                     success: true
-                )
-            }
-        } catch {
-            return .result(
-                dialog: IntentDialog("Sorry, I couldn't log that grocery expense. Please try again.")
-            ) {
-                ExpenseSnippetView(
-                    amount: amount,
-                    category: "Groceries",
-                    merchant: store,
-                    success: false
                 )
             }
         }
@@ -129,16 +107,6 @@ struct QuickCoffeeIntent: AppIntent {
     
     func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
         do {
-            let transactionBody = CreateTransactionBody(
-                type: "expense",
-                amount: amount,
-                category: "Coffee",
-                note: "Coffee at \(coffeeshop)",
-                date: ISO8601DateFormatter().string(from: Date())
-            )
-            
-            let api = TransactionsAPI()
-            let transaction = try await api.create(transactionBody)
             
             return .result(
                 dialog: IntentDialog("Logged $\(String(format: "%.2f", amount)) coffee purchase at \(coffeeshop)")
@@ -148,17 +116,6 @@ struct QuickCoffeeIntent: AppIntent {
                     category: "Coffee",
                     merchant: coffeeshop,
                     success: true
-                )
-            }
-        } catch {
-            return .result(
-                dialog: IntentDialog("Sorry, I couldn't log that coffee purchase. Please try again.")
-            ) {
-                ExpenseSnippetView(
-                    amount: amount,
-                    category: "Coffee",
-                    merchant: coffeeshop,
-                    success: false
                 )
             }
         }

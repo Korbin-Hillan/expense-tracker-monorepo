@@ -278,53 +278,50 @@ struct LandingView: View {
             .presentationDragIndicator(.hidden)
             .presentationDetents([.fraction(0.85), .large])
         }
-        .onChange(of: showingAuthSheet) { isShowing in
-            print("📱 LandingView: Auth sheet state changed to: \(isShowing)")
+        .onChange(of: showingAuthSheet) { oldValue, newValue in
+            print("📱 LandingView: Auth sheet state changed from \(oldValue) → \(newValue)")
         }
     }
     
     private func startEmailSignIn(email: String, password: String) {
         print("🔘 LandingView: startEmailSignIn called with email: '\(email)' password length: \(password.count)")
-        
+
         guard !email.isEmpty, !password.isEmpty else {
             print("❌ LandingView: Empty email or password")
             authError = "Please enter both email and password."
             return
         }
-        
+
         print("🔄 LandingView: Starting authentication process...")
         isAuthenticating = true
         authError = nil
-        
-        Task {
-            print("⚡ LandingView: Task started for authentication")
-            
-            // Test connection first
-            await authClient.testConnection()
-            
+
+        Task(priority: .userInitiated) {
+            await authClient.testConnection()  // optional quick ping
+
             do {
-                let response = try await authClient.loginOrRegister(email: email, password: password)
+                let resp = try await authClient.loginOrRegister(email: email, password: password)
+                print("✅ LandingView: Email auth successful. JWT:", resp.token.prefix(16), "…")
                 await MainActor.run {
-                    print("✅ LandingView: Email auth successful. JWT:", response.token.prefix(16), "…")
                     isAuthenticating = false
                     showingAuthSheet = false
                     onAuthenticated()
                 }
             } catch {
                 await MainActor.run {
-                    print("❌ LandingView: Authentication failed with error: \(error)")
                     isAuthenticating = false
-                    if let authError = error as? AuthError {
-                        self.authError = authError.localizedDescription
-                        print("❌ LandingView: AuthError: \(authError.localizedDescription)")
+                    if let ae = error as? AuthError {
+                        authError = ae.localizedDescription
+                        print("❌ LandingView: AuthError: \(ae.localizedDescription)")
                     } else {
-                        self.authError = "Authentication failed: \(error.localizedDescription)"
+                        authError = "Authentication failed: \(error.localizedDescription)"
                         print("❌ LandingView: Generic error: \(error.localizedDescription)")
                     }
                 }
             }
         }
     }
+
     
     private func startGoogleSignIn() {
         guard let presenter = UIApplication.topViewController else { return }
@@ -338,15 +335,15 @@ struct LandingView: View {
                 return
             }
 
-            Task {
+            Task(priority: .userInitiated) {
                 do {
                     let resp = try await auth(idToken)
                     print("✅ app JWT:", resp.token.prefix(16), "…")
-                    showingAuthSheet = false
-                    onAuthenticated()
-                } catch {
-                    print("❌ auth error:", error.localizedDescription)
-                }
+                    await MainActor.run {
+                        showingAuthSheet = false
+                        onAuthenticated()
+                    }
+                } catch { print("❌ auth error:", error.localizedDescription) }
             }
         }
     }
@@ -364,14 +361,14 @@ struct LandingView: View {
             if let cred = authorization.credential as? ASAuthorizationAppleIDCredential,
                let tokenData = cred.identityToken,
                let token = String(data: tokenData, encoding: .utf8) {
-                Task {
+                Task(priority: .userInitiated) {
                     do {
-                        let _ = try await auth(token)
-                        showingAuthSheet = false
-                        onAuthenticated()
-                    } catch {
-                        print("Auth failed:", error.localizedDescription)
-                    }
+                        _ = try await auth(token)
+                        await MainActor.run {
+                            showingAuthSheet = false
+                            onAuthenticated()
+                        }
+                    } catch { print("Auth failed:", error.localizedDescription) }
                 }
             } else {
                 print("No identityToken from Apple")
@@ -405,64 +402,68 @@ struct AnimatedGradientBackground: View {
     }
 }
 
-// Floating particles effect
+// Floating particles effect (TimelineView + Canvas)
 struct FloatingParticles: View {
-    @State private var particles: [Particle] = []
-    
+    @State private var particles: [Particle] = (0..<28).map { _ in
+        Particle(
+            origin: CGPoint(x: .random(in: 0...1), y: .random(in: 0...1)), // normalized
+            velocity: CGVector(dx: .random(in: -12...12), dy: .random(in: -18 ... -8)), // pts/sec
+            opacity: Double.random(in: 0.10...0.30),
+            scale: CGFloat.random(in: 0.6...1.6)
+        )
+    }
+    @State private var start = Date()
+
     struct Particle: Identifiable {
         let id = UUID()
-        var x: CGFloat
-        var y: CGFloat
-        var opacity: Double
-        var scale: CGFloat
+        let origin: CGPoint      // normalized 0...1 (later scaled by view size)
+        let velocity: CGVector   // points per second
+        let opacity: Double
+        let scale: CGFloat
     }
-    
+
     var body: some View {
-        GeometryReader { geometry in
-            ForEach(particles) { particle in
-                Circle()
-                    .fill(.white.opacity(particle.opacity))
-                    .frame(width: 4, height: 4)
-                    .scaleEffect(particle.scale)
-                    .position(x: particle.x, y: particle.y)
-                    .animation(
-                        .linear(duration: Double.random(in: 10...20))
-                        .repeatForever(autoreverses: false),
-                        value: particles.count
-                    )
-            }
-        }
-        .onAppear {
-            createParticles()
-            animateParticles()
-        }
-    }
-    
-    private func createParticles() {
-        particles = (0..<20).map { _ in
-            Particle(
-                x: CGFloat.random(in: 0...UIScreen.main.bounds.width),
-                y: CGFloat.random(in: 0...UIScreen.main.bounds.height),
-                opacity: Double.random(in: 0.1...0.3),
-                scale: CGFloat.random(in: 0.5...1.5)
-            )
-        }
-    }
-    
-    private func animateParticles() {
-        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            for i in particles.indices {
-                particles[i].y -= 0.5
-                particles[i].x += CGFloat.random(in: -0.5...0.5)
-                
-                if particles[i].y < -10 {
-                    particles[i].y = UIScreen.main.bounds.height + 10
-                    particles[i].x = CGFloat.random(in: 0...UIScreen.main.bounds.width)
+        GeometryReader { geo in
+            TimelineView(.animation) { timeline in
+                Canvas { context, size in
+                    let t = timeline.date.timeIntervalSince(start) // seconds since appear
+                    let w = size.width
+                    let h = size.height
+                    let pad: CGFloat = 12  // wrap padding buffer
+                    let wrapW = w + 2*pad
+                    let wrapH = h + 2*pad
+
+                    for p in particles {
+                        // Start from normalized origin scaled to current size
+                        let startX = p.origin.x * w
+                        let startY = p.origin.y * h
+
+                        // Position after t seconds
+                        var x = startX + p.velocity.dx * t
+                        var y = startY + p.velocity.dy * t
+
+                        // Wrap with padding (so they drift in/out smoothly)
+                        x = (x + pad).truncatingRemainder(dividingBy: wrapW)
+                        y = (y + pad).truncatingRemainder(dividingBy: wrapH)
+                        if x < 0 { x += wrapW }
+                        if y < 0 { y += wrapH }
+                        x -= pad
+                        y -= pad
+
+                        // Draw circle
+                        let d: CGFloat = 4 * p.scale
+                        let rect = CGRect(x: x - d/2, y: y - d/2, width: d, height: d)
+                        context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(p.opacity)))
+                    }
                 }
+                .allowsHitTesting(false)
             }
         }
+        .onAppear { start = Date() } // reset the timebase when shown
     }
 }
+
+
 
 // Feature highlights
 struct FeatureHighlights: View {

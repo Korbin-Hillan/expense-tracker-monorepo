@@ -93,20 +93,9 @@ struct AddExpenseIntent: AppIntent {
     
     func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
         let categoryName = category?.name ?? "General"
-        let noteText = [merchant, note].compactMap { $0 }.joined(separator: " - ")
         
         do {
-            let transactionBody = CreateTransactionBody(
-                type: "expense",
-                amount: amount,
-                category: categoryName,
-                note: noteText.isEmpty ? nil : noteText,
-                date: ISO8601DateFormatter().string(from: Date())
-            )
-            
-            let api = TransactionsAPI()
-            let transaction = try await api.create(transactionBody)
-            
+                        
             let dialogText = if let merchant = merchant {
                 "Logged $\(String(format: "%.2f", amount)) expense at \(merchant) in \(categoryName)"
             } else {
@@ -121,17 +110,6 @@ struct AddExpenseIntent: AppIntent {
                     category: categoryName,
                     merchant: merchant,
                     success: true
-                )
-            }
-        } catch {
-            return .result(
-                dialog: IntentDialog("Sorry, I couldn't log that expense. Please try again.")
-            ) {
-                ExpenseSnippetView(
-                    amount: amount,
-                    category: category?.name ?? "General",
-                    merchant: merchant,
-                    success: false
                 )
             }
         }
@@ -165,19 +143,8 @@ struct AddIncomeIntent: AppIntent {
     
     func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
         let categoryName = category ?? source ?? "Income"
-        let noteText = [source, note].compactMap { $0 }.joined(separator: " - ")
         
         do {
-            let transactionBody = CreateTransactionBody(
-                type: "income",
-                amount: amount,
-                category: categoryName,
-                note: noteText.isEmpty ? nil : noteText,
-                date: ISO8601DateFormatter().string(from: Date())
-            )
-            
-            let api = TransactionsAPI()
-            let transaction = try await api.create(transactionBody)
             
             let dialogText = if let source = source {
                 "Logged $\(String(format: "%.2f", amount)) income from \(source) in \(categoryName)"
@@ -195,20 +162,25 @@ struct AddIncomeIntent: AppIntent {
                     success: true
                 )
             }
-        } catch {
-            return .result(
-                dialog: IntentDialog("Sorry, I couldn't log that income. Please try again.")
-            ) {
-                IncomeSnippetView(
-                    amount: amount,
-                    category: category ?? "Income",
-                    source: source,
-                    success: false
-                )
-            }
         }
     }
 }
+
+enum TimeframeEnum: String, AppEnum {
+    case today = "Today"
+    case week = "This Week"
+    case month = "This Month"
+    case year = "This Year"
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Time Frame"
+    static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .today: "today",
+        .week: "this week",
+        .month: "this month",
+        .year: "this year"
+    ]
+}
+
 
 // MARK: - Spending Query Intent
 struct SpendingQueryIntent: AppIntent {
@@ -222,8 +194,8 @@ struct SpendingQueryIntent: AppIntent {
     @Parameter(title: "Category", description: "Category to check spending for")
     var category: CategoryEntity?
     
-    @Parameter(title: "Time Frame", description: "Time period to check", default: "this month")
-    var timeframe: String
+    @Parameter(title: "Time Frame", default: .month)
+    var timeframe: TimeframeEnum
     
     static var openAppWhenRun: Bool = false
     
@@ -234,7 +206,9 @@ struct SpendingQueryIntent: AppIntent {
             
             let expenseTransactions = transactions.filter { $0.type == "expense" }
             let filteredTransactions = filterTransactionsByTimeframe(expenseTransactions, timeframe: timeframe)
-            
+
+            let timeframeText = timeframe.rawValue.lowercased()
+
             let categoryTransactions = if let category = category {
                 filteredTransactions.filter { $0.category.lowercased() == category.name.lowercased() }
             } else {
@@ -245,28 +219,29 @@ struct SpendingQueryIntent: AppIntent {
             let count = categoryTransactions.count
             
             let dialogText = if let category = category {
-                "You spent $\(String(format: "%.2f", totalSpent)) on \(category.name.lowercased()) \(timeframe) across \(count) transactions"
+                "You spent $\(String(format: "%.2f", totalSpent)) on \(category.name.lowercased()) \(timeframeText) across \(count) transactions"
             } else {
-                "You spent $\(String(format: "%.2f", totalSpent)) \(timeframe) across \(count) transactions"
+                "You spent $\(String(format: "%.2f", totalSpent)) \(timeframeText) across \(count) transactions"
             }
-            
+
             return .result(
                 dialog: IntentDialog(stringLiteral: dialogText)
             ) {
                 SpendingQuerySnippetView(
                     category: category?.name,
-                    timeframe: timeframe,
+                    timeframe: timeframeText,     // <-- String, not enum
                     amount: totalSpent,
                     transactionCount: count
                 )
             }
         } catch {
+            let timeframeText = timeframe.rawValue.lowercased()  // <- add this
             return .result(
                 dialog: IntentDialog("Sorry, I couldn't retrieve your spending information right now.")
             ) {
                 SpendingQuerySnippetView(
                     category: category?.name,
-                    timeframe: timeframe,
+                    timeframe: timeframeText,   // <- use String, not enum
                     amount: 0,
                     transactionCount: 0
                 )
@@ -274,29 +249,27 @@ struct SpendingQueryIntent: AppIntent {
         }
     }
     
-    private func filterTransactionsByTimeframe(_ transactions: [TransactionDTO], timeframe: String) -> [TransactionDTO] {
+    private func filterTransactionsByTimeframe(_ transactions: [TransactionDTO], timeframe: TimeframeEnum) -> [TransactionDTO] {
         let calendar = Calendar.current
         let now = Date()
         let dateFormatter = ISO8601DateFormatter()
         
         return transactions.filter { transaction in
             guard let transactionDate = dateFormatter.date(from: transaction.date) else { return false }
-            
-            switch timeframe.lowercased() {
-            case "this month", "month":
+            switch timeframe {
+            case .month:
                 return calendar.isDate(transactionDate, equalTo: now, toGranularity: .month)
-            case "this week", "week":
+            case .week:
                 return calendar.isDate(transactionDate, equalTo: now, toGranularity: .weekOfYear)
-            case "today":
+            case .today:
                 return calendar.isDate(transactionDate, equalTo: now, toGranularity: .day)
-            case "this year", "year":
+            case .year:
                 return calendar.isDate(transactionDate, equalTo: now, toGranularity: .year)
-            default:
-                return calendar.isDate(transactionDate, equalTo: now, toGranularity: .month)
             }
         }
     }
 }
+
 
 // MARK: - Projected Total Intent
 struct ProjectedTotalIntent: AppIntent {
@@ -367,16 +340,13 @@ struct ExpenseAppShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: AddExpenseIntent(),
             phrases: [
-                "Log expense with \(.applicationName)",
-                "Add expense to \(.applicationName)", 
-                "I spent money using \(.applicationName)",
                 "Log expense in \(.applicationName)",
-                "Log $# at # in \(.applicationName)",
-                "I spent $# at # in \(.applicationName)",
-                "Spent $# at # with \(.applicationName)",
-                "Log # dollars at # using \(.applicationName)",
-                "Add $# expense at # to \(.applicationName)",
-                "Log $# expense at # in \(.applicationName)"
+                "Add expense to \(.applicationName)",
+                "I spent money using \(.applicationName)",
+
+                // single allowed parameter (CategoryEntity)
+                "Log expense for \(\.$category) in \(.applicationName)",
+                "Add an expense to \(\.$category) in \(.applicationName)"
             ],
             shortTitle: "Log Expense",
             systemImageName: "minus.circle"
@@ -385,12 +355,9 @@ struct ExpenseAppShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: AddIncomeIntent(),
             phrases: [
-                "Earned money in \(.applicationName)",
-                "Add income in \(.applicationName)",
                 "Log income in \(.applicationName)",
-                "I earned money in \(.applicationName)",
-                "Add new income to \(.applicationName)",
-                "Log new income in \(.applicationName)"
+                "Add income to \(.applicationName)",
+                "I earned money in \(.applicationName)"
             ],
             shortTitle: "Log Income",
             systemImageName: "plus.circle"
@@ -400,9 +367,13 @@ struct ExpenseAppShortcutsProvider: AppShortcutsProvider {
             intent: SpendingQueryIntent(),
             phrases: [
                 "Show my spending in \(.applicationName)",
-                "Check spending in \(.applicationName)", 
+                "Check spending in \(.applicationName)",
                 "How much did I spend in \(.applicationName)",
-                "My spending in \(.applicationName)"
+                "My spending in \(.applicationName)",
+
+                // pick exactly ONE parameter per phrase:
+                "Show my \(\.$category) spending in \(.applicationName)",
+                "Show my spending for \(\.$timeframe) in \(.applicationName)"
             ],
             shortTitle: "Check Spending",
             systemImageName: "chart.bar"

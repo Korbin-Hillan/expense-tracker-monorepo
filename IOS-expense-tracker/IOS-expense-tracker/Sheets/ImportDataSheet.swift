@@ -215,15 +215,6 @@ struct ImportDataSheet: View {
         let out = try FileHandle(forWritingTo: tmp)
         defer { try? out.close() }
 
-        // EXACT CRLFs — do not add extra spaces or stray \n
-        let prefix = """
-        --\(boundary)\r
-        \nContent-Disposition: form-data; name="\(fieldName)"; filename="\(filename)"\r
-        \nContent-Type: \(mime)\r
-        \n\r
-        \n
-        """.replacingOccurrences(of: "\r\n", with: "\r\n") // keep as CRLF
-         .replacingOccurrences(of: "\r\n", with: "\r\n")   // no-op safeguard
 
         // Simpler & safer: build with literal \r\n (no replacements)
         let prefixFixed =
@@ -285,7 +276,6 @@ struct ImportDataSheet: View {
         try out.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
         return tmp
     }
-
 
     private func upload(_ req: URLRequest, fromFile bodyURL: URL) async throws -> (Data, URLResponse) {
         let cfg = URLSessionConfiguration.default
