@@ -31,16 +31,16 @@ struct QuickActionCard: View {
             .frame(height: 100)
             .background(.white.opacity(0.15))
     
-            .cornerRadius(16)
+            .cornerRadius(AppConfig.UI.cornerRadius)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: AppConfig.UI.cornerRadius)
                     .stroke(.white.opacity(0.2), lineWidth: 1)
             )
             .scaleEffect(isPressed ? 0.95 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(.easeInOut(duration: AppConfig.UI.quickAnimationDuration)) {
                 isPressed = pressing
             }
         }, perform: {})

@@ -1,8 +1,8 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-console.log("Domain:", process.env.AUTH0_DOMAIN);
-console.log("Audience:", process.env.AUTH0_AUDIENCE);
+import { validateEnvironment } from "./utils/env-validation.ts";
+validateEnvironment();
 
 import express, { type RequestHandler } from "express";
 import { ObjectId } from "mongodb";
@@ -10,6 +10,7 @@ import { transactionsRouter } from "./routes/transactions.ts";
 import { importRouter } from "./routes/import.ts";
 
 import { router as authRouter } from "./routes/auth-exchange.ts";
+import { apiRateLimit, authRateLimit } from "./middleware/rate-limit.ts";
 import { getJWKS } from "./keys.ts";
 import { jwtVerify } from "jose";
 import { createPublicKey } from "crypto";
@@ -19,6 +20,11 @@ import { ensureTransactionIndexes } from "./database/transactions.ts";
 import http from "http";
 
 const app = express();
+
+// Apply rate limiting
+app.use(apiRateLimit);
+app.use("/auth", authRateLimit);
+
 app.use(express.json());
 
 app.get("/", async (_req, res) => {

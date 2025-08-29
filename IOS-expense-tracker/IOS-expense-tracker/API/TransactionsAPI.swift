@@ -101,14 +101,12 @@ struct FileColumnsResult: Codable {
 enum TxError: LocalizedError { case badResponse, server(String) }
 
 final class TransactionsAPI {
-    private let base = URL(string: "http://192.168.0.119:3000")!
+    private let base = AppConfig.baseURL
 
     func create(_ body: CreateTransactionBody) async throws -> TransactionDTO {
-        print("🔥 TransactionsAPI: Creating transaction with body: \(body)")
+        Logger.shared.debug("Creating transaction with category: \(body.category)")
         
         let url = base.appendingPathComponent("/api/transactions")
-        print("🌐 TransactionsAPI: Request URL: \(url)")
-        
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -116,52 +114,47 @@ final class TransactionsAPI {
         
         do {
             req.httpBody = try JSONEncoder().encode(body)
-            print("📤 TransactionsAPI: Request body encoded successfully")
         } catch {
-            print("❌ TransactionsAPI: Failed to encode request body: \(error)")
+            Logger.shared.error("Failed to encode request body: \(error)")
             throw TxError.badResponse
         }
         
         do {
-            print("🔐 TransactionsAPI: Making authenticated request...")
             let (data, resp) = try await AuthSession.shared.authedRequest(req)
             
             guard let http = resp as? HTTPURLResponse else { 
-                print("❌ TransactionsAPI: No HTTP response received")
+                Logger.shared.error("No HTTP response received")
                 throw TxError.badResponse 
             }
             
-            print("📥 TransactionsAPI: Response status: \(http.statusCode)")
-            let responseBody = String(data: data, encoding: .utf8) ?? "<no data>"
-            print("📥 TransactionsAPI: Response body: \(responseBody)")
-            
+            Logger.shared.verbose("Response status: \(http.statusCode)")
             
             if (200...299).contains(http.statusCode) {
                 do {
                     let transaction = try JSONDecoder().decode(TransactionDTO.self, from: data)
-                    print("✅ TransactionsAPI: Transaction created successfully: \(transaction.id)")
+                    Logger.shared.info("Transaction created successfully: \(transaction.id)")
                     return transaction
                 } catch {
-                    print("❌ TransactionsAPI: Failed to decode response: \(error)")
+                    Logger.shared.error("Failed to decode response: \(error)")
                     throw TxError.server("Failed to decode server response")
                 }
             } else {
                 let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
-                print("❌ TransactionsAPI: Server error \(http.statusCode): \(msg)")
+                Logger.shared.error("Server error \(http.statusCode): \(msg)")
                 throw TxError.server(msg)
             }
         } catch {
-            print("❌ TransactionsAPI: Request failed: \(error)")
             if error is TxError {
                 throw error
             } else {
+                Logger.shared.error("Network request failed: \(error.localizedDescription)")
                 throw TxError.server("Network request failed: \(error.localizedDescription)")
             }
         }
     }
 
-    func list(limit: Int = 20, skip: Int = 0) async throws -> [TransactionDTO] {
-        print("📋 TransactionsAPI: Listing transactions (limit: \(limit), skip: \(skip))")
+    func list(limit: Int = AppConfig.API.defaultPageSize, skip: Int = 0) async throws -> [TransactionDTO] {
+        Logger.shared.debug("Listing transactions (limit: \(limit), skip: \(skip))")
         
         var comps = URLComponents(url: base.appendingPathComponent("/api/transactions"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [
@@ -170,49 +163,43 @@ final class TransactionsAPI {
         ]
         
         guard let url = comps.url else {
-            print("❌ TransactionsAPI: Failed to construct URL")
+            Logger.shared.error("Failed to construct URL")
             throw TxError.badResponse
         }
-        
-        print("🌐 TransactionsAPI: Request URL: \(url)")
         
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         do {
-            print("🔐 TransactionsAPI: Making authenticated list request...")
             let (data, resp) = try await AuthSession.shared.authedRequest(req)
             
             guard let http = resp as? HTTPURLResponse else {
-                print("❌ TransactionsAPI: No HTTP response received for list")
+                Logger.shared.error("No HTTP response received for list")
                 throw TxError.badResponse
             }
             
-            print("📥 TransactionsAPI: List response status: \(http.statusCode)")
-            let responseBody = String(data: data, encoding: .utf8) ?? "<no data>"
-            print("📥 TransactionsAPI: List response body: \(responseBody)")
-            
+            Logger.shared.verbose("List response status: \(http.statusCode)")
             
             guard (200...299).contains(http.statusCode) else {
                 let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
-                print("❌ TransactionsAPI: List server error \(http.statusCode): \(msg)")
+                Logger.shared.error("List server error \(http.statusCode): \(msg)")
                 throw TxError.server(msg)
             }
             
             do {
                 let transactions = try JSONDecoder().decode([TransactionDTO].self, from: data)
-                print("✅ TransactionsAPI: Successfully loaded \(transactions.count) transactions")
+                Logger.shared.info("Successfully loaded \(transactions.count) transactions")
                 return transactions
             } catch {
-                print("❌ TransactionsAPI: Failed to decode transactions list: \(error)")
+                Logger.shared.error("Failed to decode transactions list: \(error)")
                 throw TxError.server("Failed to decode transactions")
             }
         } catch {
-            print("❌ TransactionsAPI: List request failed: \(error)")
             if error is TxError {
                 throw error
             } else {
+                Logger.shared.error("Network request failed: \(error.localizedDescription)")
                 throw TxError.server("Network request failed: \(error.localizedDescription)")
             }
         }
@@ -275,40 +262,35 @@ final class TransactionsAPI {
     }
     
     func delete(_ id: String) async throws {
-        print("🗑️ TransactionsAPI: Deleting transaction \(id)")
+        Logger.shared.debug("Deleting transaction \(id)")
         
         let url = base.appendingPathComponent("/api/transactions/\(id)")
-        print("🌐 TransactionsAPI: Delete URL: \(url)")
-        
         var req = URLRequest(url: url)
         req.httpMethod = "DELETE"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         do {
-            print("🔐 TransactionsAPI: Making authenticated delete request...")
             let (data, resp) = try await AuthSession.shared.authedRequest(req)
             
             guard let http = resp as? HTTPURLResponse else {
-                print("❌ TransactionsAPI: No HTTP response received for delete")
+                Logger.shared.error("No HTTP response received for delete")
                 throw TxError.badResponse
             }
             
-            print("📥 TransactionsAPI: Delete response status: \(http.statusCode)")
-            let responseBody = String(data: data, encoding: .utf8) ?? "<no data>"
-            print("📥 TransactionsAPI: Delete response body: \(responseBody)")
+            Logger.shared.verbose("Delete response status: \(http.statusCode)")
             
             guard (200...299).contains(http.statusCode) else {
                 let msg = String(data: data, encoding: .utf8) ?? "unknown_error"
-                print("❌ TransactionsAPI: Delete server error \(http.statusCode): \(msg)")
+                Logger.shared.error("Delete server error \(http.statusCode): \(msg)")
                 throw TxError.server(msg)
             }
             
-            print("✅ TransactionsAPI: Transaction deleted successfully: \(id)")
+            Logger.shared.info("Transaction deleted successfully: \(id)")
         } catch {
-            print("❌ TransactionsAPI: Delete request failed: \(error)")
             if error is TxError {
                 throw error
             } else {
+                Logger.shared.error("Delete request failed: \(error.localizedDescription)")
                 throw TxError.server("Network request failed: \(error.localizedDescription)")
             }
         }

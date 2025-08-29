@@ -10,7 +10,7 @@ import SwiftUI
 struct HomeView: View {
     @State private var totalBalance: Double = 0.0
     @State private var monthlySpent: Double = 0.0
-    @State private var monthlyBudget: Double = UserDefaults.standard.double(forKey: "monthlyBudget") == 0 ? 2500.00 : UserDefaults.standard.double(forKey: "monthlyBudget")
+    @State private var monthlyBudget: Double = UserDefaults.standard.double(forKey: "monthlyBudget") == 0 ? AppConfig.Budget.defaultBudget : UserDefaults.standard.double(forKey: "monthlyBudget")
     @Environment(\.colorScheme) var colorScheme
     
     @State private var showingAddExpense = false
@@ -41,11 +41,11 @@ struct HomeView: View {
     
     private var budgetProgressColor: Color {
         let percentage = monthlyBudget > 0 ? monthlySpent / monthlyBudget : 0
-        if percentage >= 1.0 {
+        if percentage >= AppConfig.Budget.dangerThreshold {
             return .red
-        } else if percentage >= 0.8 {
+        } else if percentage >= AppConfig.Budget.alertThreshold {
             return .orange
-        } else if percentage >= 0.6 {
+        } else if percentage >= AppConfig.Budget.warningThreshold {
             return .yellow
         } else {
             return .green
@@ -54,11 +54,11 @@ struct HomeView: View {
     
     private var budgetStatusIcon: String {
         let percentage = monthlyBudget > 0 ? monthlySpent / monthlyBudget : 0
-        if percentage >= 1.0 {
+        if percentage >= AppConfig.Budget.dangerThreshold {
             return "exclamationmark.triangle.fill"
-        } else if percentage >= 0.8 {
+        } else if percentage >= AppConfig.Budget.alertThreshold {
             return "exclamationmark.circle.fill"
-        } else if percentage >= 0.6 {
+        } else if percentage >= AppConfig.Budget.warningThreshold {
             return "info.circle.fill"
         } else {
             return "checkmark.circle.fill"
@@ -144,16 +144,15 @@ struct HomeView: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(budgetProgressColor)
                                 .frame(width: max(0, min(1, monthlySpent / monthlyBudget)) * UIScreen.main.bounds.width * 0.7, height: 8)
-                                .animation(.easeInOut(duration: 0.3), value: monthlySpent)
+                                .animation(.easeInOut(duration: AppConfig.UI.animationDuration), value: monthlySpent)
                         }
                     }
                 }
                 .padding(24)
                 .background(.white.opacity(0.15))
-
-                .cornerRadius(20)
+                .cornerRadius(AppConfig.UI.cardCornerRadius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: AppConfig.UI.cardCornerRadius)
                         .stroke(.white.opacity(0.2), lineWidth: 1)
                 )
                 
@@ -267,7 +266,7 @@ struct HomeView: View {
     private func loadRecent() async {
         do {
             recent = try await api.list(limit: 10, skip: 0)
-            allTransactions = try await api.list(limit: 1000, skip: 0)
+            allTransactions = try await api.list(limit: AppConfig.API.maxBulkLoadSize, skip: 0)
             calculateBalances()
         } catch {
             print("failed to load recent:", error.localizedDescription)
