@@ -352,23 +352,26 @@ struct LandingView: View {
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         request.requestedScopes = [.fullName, .email]
-
+        
         let controller = ASAuthorizationController(authorizationRequests: [request])
         controller.delegate = appleCoordinator
         controller.presentationContextProvider = appleCoordinator
-
+        
         appleCoordinator.onSuccess = { authorization in
             if let cred = authorization.credential as? ASAuthorizationAppleIDCredential,
                let tokenData = cred.identityToken,
                let token = String(data: tokenData, encoding: .utf8) {
-                Task(priority: .userInitiated) {
+                
+                Task.detached(priority: .userInitiated) {   // (use .userInitiated, not .userInteractive)
                     do {
                         _ = try await auth(token)
                         await MainActor.run {
                             showingAuthSheet = false
                             onAuthenticated()
                         }
-                    } catch { print("Auth failed:", error.localizedDescription) }
+                    } catch {
+                        print("Auth failed:", error.localizedDescription)
+                    }
                 }
             } else {
                 print("No identityToken from Apple")
@@ -378,8 +381,16 @@ struct LandingView: View {
         appleCoordinator.onError = { error in
             print("Could not authenticate: \(error.localizedDescription)")
         }
-
-        controller.performRequests()
+        
+        if #available(iOS 16.0, *) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                controller.performRequests(options: .preferImmediatelyAvailableCredentials)
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                controller.performRequests()
+            }
+        }
     }
 }
 
