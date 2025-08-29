@@ -107,7 +107,13 @@ export class ImportService {
       const readable = Readable.from(fileBuffer);
 
       const parser = csvParse({
-        columns: true,
+        columns: (header: string[]) =>
+          header.map((h) =>
+            String(h ?? "")
+              .replace(/^\uFEFF/, "") // ✅ strip BOM
+              .replace(/"/g, "")
+              .trim()
+          ),
         skip_empty_lines: true,
         trim: true,
         bom: true,
@@ -306,45 +312,44 @@ export class ImportService {
   /**
    * Date parsing with Excel serial and common formats; returns yyyy-mm-dd
    */
+  // services/importService.ts
   private static parseDate(dateValue: any): string | null {
-    if (!dateValue) return null;
+    if (dateValue == null) return null;
 
-    // Excel numeric date
+    // Excel serial
     if (typeof dateValue === "number") {
       const d = XLSX.SSF.parse_date_code(dateValue);
-      if (d) return new Date(d.y, d.m - 1, d.d).toISOString().slice(0, 10);
+      if (!d) return null;
+      return new Date(Date.UTC(d.y, d.m - 1, d.d)).toISOString().slice(0, 10);
     }
 
     const s = String(dateValue).trim();
 
-    // Normalize common bank formats to ISO yyyy-mm-dd
     // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s))
-      return new Date(s).toISOString().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-    // MM/DD/YYYY or M/D/YYYY
-    const mdY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mdY) {
-      const [, m, d, y] = mdY;
-      return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`)
-        .toISOString()
-        .slice(0, 10);
+    // MM/DD/YYYY
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const [, mo, da, yr] = m;
+      return `${yr}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`;
     }
 
-    // MM-DD-YYYY or M-D-YYYY
-    const mdY2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (mdY2) {
-      const [, m, d, y] = mdY2;
-      return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`)
-        .toISOString()
-        .slice(0, 10);
+    // MM-DD-YYYY
+    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (m) {
+      const [, mo, da, yr] = m;
+      return `${yr}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`;
     }
 
-    // Fallback
-    const dflt = new Date(s);
-    if (!isNaN(dflt.getTime())) return dflt.toISOString().slice(0, 10);
+    // Pull date from strings like "2025-08-26 00:00:00"
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+    if (m) {
+      const [, yr, mo, da] = m;
+      return `${yr}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`;
+    }
 
-    return null;
+    return null; // fail loudly → row error instead of silently becoming “today”
   }
 
   /**
@@ -402,20 +407,32 @@ export class ImportService {
    * Convert ImportableTransaction to TransactionDoc for DB
    * (Consider adding a dedupeHash field to TransactionDoc)
    */
+  // services/importService.ts
+  // services/importService.ts
   static convertToTransactionDoc(
     transaction: ImportableTransaction,
     userId: ObjectId,
     dedupeHash?: string
   ): Omit<TransactionDoc, "_id"> {
     const now = new Date();
+
+    // transaction.date MUST be YYYY-MM-DD here
+    const m = transaction.date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) throw new Error(`Bad normalized date: ${transaction.date}`);
+    const [, y, mo, d] = m;
+    // use noon UTC to avoid any DST edge cases
+    const dateUtc = new Date(
+      Date.UTC(Number(y), Number(mo) - 1, Number(d), 12, 0, 0)
+    );
+
     return {
       userId,
       type: transaction.type || "expense",
-      amount: transaction.amount, // positive
+      amount: transaction.amount,
       category: transaction.category || "Other",
       note: transaction.note || transaction.description,
-      date: new Date(transaction.date),
-      createdAt: now,
+      date: dateUtc, // ← the real transaction day
+      createdAt: now, // import timestamp (today)
       updatedAt: now,
       ...(dedupeHash ? { dedupeHash } : {}),
     } as any;

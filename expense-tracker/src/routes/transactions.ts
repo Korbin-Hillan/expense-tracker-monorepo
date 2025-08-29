@@ -4,7 +4,7 @@ import { requireAppJWT } from "../middleware/auth.ts";
 import { transactionsCollection } from "../database/transactions.ts";
 import { ExportService } from "../services/exportService.ts";
 import { readFileSync, unlinkSync } from "fs";
-
+import { toISOStringNoMillis } from "../utils/dates.ts";
 export const transactionsRouter = Router();
 
 transactionsRouter.post(
@@ -53,7 +53,7 @@ transactionsRouter.post(
       amount: doc.amount,
       category: doc.category,
       note: doc.note ?? null,
-      date: doc.date.toISOString(),
+      date: toISOStringNoMillis(doc.date),
     });
   }
 );
@@ -80,7 +80,7 @@ transactionsRouter.get("/api/transactions", requireAppJWT, async (req, res) => {
       amount: d.amount,
       category: d.category,
       note: d.note ?? null,
-      date: d.date.toISOString(),
+      date: toISOStringNoMillis(d.date),
     }))
   );
 });
@@ -153,7 +153,7 @@ transactionsRouter.put(
       amount: updateDoc.amount,
       category: updateDoc.category,
       note: updateDoc.note ?? existing.note ?? null,
-      date: (txDate ?? existing.date).toISOString(),
+      date: toISOStringNoMillis(txDate ?? existing.date),
     });
   }
 );
@@ -181,9 +181,9 @@ transactionsRouter.delete(
     });
 
     console.log(`✅ Successfully cleared ${result.deletedCount} transactions`);
-    res.json({ 
-      success: true, 
-      deletedCount: result.deletedCount 
+    res.json({
+      success: true,
+      deletedCount: result.deletedCount,
     });
   }
 );
@@ -246,18 +246,18 @@ transactionsRouter.get(
 
       // Build filter query
       const filter: any = { userId: new ObjectId(userId) };
-      
+
       if (startDate || endDate) {
         filter.date = {};
         if (startDate) filter.date.$gte = new Date(startDate as string);
         if (endDate) filter.date.$lte = new Date(endDate as string);
       }
-      
-      if (category && category !== 'all') {
+
+      if (category && category !== "all") {
         filter.category = category as string;
       }
-      
-      if (type && type !== 'all') {
+
+      if (type && type !== "all") {
         filter.type = type as string;
       }
 
@@ -267,14 +267,18 @@ transactionsRouter.get(
         .sort({ date: -1, _id: -1 })
         .toArray();
 
-      const exportableTransactions = ExportService.prepareTransactionsForExport(transactions);
+      const exportableTransactions =
+        ExportService.prepareTransactionsForExport(transactions);
       const csvPath = await ExportService.generateCSV(exportableTransactions);
 
       // Read file and send as response
       const csvContent = readFileSync(csvPath);
-      
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=transactions.csv');
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=transactions.csv"
+      );
       res.send(csvContent);
 
       // Clean up temp file
@@ -297,18 +301,18 @@ transactionsRouter.get(
 
       // Build filter query
       const filter: any = { userId: new ObjectId(userId) };
-      
+
       if (startDate || endDate) {
         filter.date = {};
         if (startDate) filter.date.$gte = new Date(startDate as string);
         if (endDate) filter.date.$lte = new Date(endDate as string);
       }
-      
-      if (category && category !== 'all') {
+
+      if (category && category !== "all") {
         filter.category = category as string;
       }
-      
-      if (type && type !== 'all') {
+
+      if (type && type !== "all") {
         filter.type = type as string;
       }
 
@@ -318,14 +322,21 @@ transactionsRouter.get(
         .sort({ date: -1, _id: -1 })
         .toArray();
 
-      const exportableTransactions = ExportService.prepareTransactionsForExport(transactions);
+      const exportableTransactions =
+        ExportService.prepareTransactionsForExport(transactions);
       const excelPath = ExportService.generateExcel(exportableTransactions);
 
       // Read file and send as response
       const excelContent = readFileSync(excelPath);
-      
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename=transactions.xlsx');
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=transactions.xlsx"
+      );
       res.send(excelContent);
 
       // Clean up temp file
@@ -348,18 +359,18 @@ transactionsRouter.get(
 
       // Build filter query
       const filter: any = { userId: new ObjectId(userId) };
-      
+
       if (startDate || endDate) {
         filter.date = {};
         if (startDate) filter.date.$gte = new Date(startDate as string);
         if (endDate) filter.date.$lte = new Date(endDate as string);
       }
-      
-      if (category && category !== 'all') {
+
+      if (category && category !== "all") {
         filter.category = category as string;
       }
-      
-      if (type && type !== 'all') {
+
+      if (type && type !== "all") {
         filter.type = type as string;
       }
 
@@ -369,8 +380,11 @@ transactionsRouter.get(
         .sort({ date: -1, _id: -1 })
         .toArray();
 
-      const exportableTransactions = ExportService.prepareTransactionsForExport(transactions);
-      const summary = ExportService.generateSummaryStats(exportableTransactions);
+      const exportableTransactions =
+        ExportService.prepareTransactionsForExport(transactions);
+      const summary = ExportService.generateSummaryStats(
+        exportableTransactions
+      );
 
       res.json(summary);
     } catch (error) {
