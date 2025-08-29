@@ -302,48 +302,45 @@ struct HomeView: View {
     }
     
     private func calculateBalances() {
-        // Calculate balance from transactions
-        let transactionBalance = allTransactions.reduce(0) { total, transaction in
-            return transaction.type == "income" ? total + transaction.amount : total - transaction.amount
-        }
-        
-        // Calculate the annual impact of recurring bills for reference
-        let annualBillsTotal = billStorage.bills.reduce(0) { total, bill in
-            guard bill.isActive else { return total }
-            switch bill.frequency {
-            case .weekly: return total + (bill.amount * 52)
-            case .monthly: return total + (bill.amount * 12)
-            case .quarterly: return total + (bill.amount * 4)
-            case .yearly: return total + bill.amount
+        // --- Define window: last 30 days (rolling) ---
+        let now = Date()
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+
+        let formatter = ISO8601DateFormatter()
+        let windowTx = allTransactions.filter { tx in
+            if let d = formatter.date(from: tx.date) { // replace .dateString with your actual property
+                return d >= cutoff
             }
+            return false
         }
-        
-        // Calculate current monthly bills impact
+
+        // --- Transaction balance and monthly spent within window ---
+        let transactionBalance = windowTx.reduce(0) { total, t in
+            t.type == "income" ? total + t.amount : total - t.amount
+        }
+
+        let transactionMonthlySpent = windowTx
+            .filter { $0.type == "expense" }
+            .reduce(0) { $0 + $1.amount }
+
+        // --- Bills (optional) ---
+        // If you want bills to count toward the "last 30 days" view, keep this block.
+        // Otherwise set monthlyBillsTotal = 0 to show *only* transactions.
         let monthlyBillsTotal = billStorage.bills.reduce(0) { total, bill in
             guard bill.isActive else { return total }
             switch bill.frequency {
-            case .weekly: return total + (bill.amount * 4.33) // Average weeks per month
-            case .monthly: return total + bill.amount
+            case .weekly:    return total + (bill.amount * 4.33) // avg per month
+            case .monthly:   return total + bill.amount
             case .quarterly: return total + (bill.amount / 3)
-            case .yearly: return total + (bill.amount / 12)
+            case .yearly:    return total + (bill.amount / 12)
             }
         }
-        
-        // Total balance = actual transactions minus current month's bill obligations
+
+        // Display only the last-30-days picture:
         totalBalance = transactionBalance - monthlyBillsTotal
-        
-        // Calculate monthly spending including bills
-        let transactionMonthlySpent = allTransactions.filter { transaction in
-            return transaction.type == "expense"
-        }.reduce(0) { $0 + $1.amount }
-        
         monthlySpent = transactionMonthlySpent + monthlyBillsTotal
-        
-        print("💰 Balance calculation:")
-        print("   Transaction balance: $\(transactionBalance)")
-        print("   Monthly bills total: $\(monthlyBillsTotal)")
-        print("   Final balance (transactions - monthly bills): $\(totalBalance)")
-        print("   Monthly spent (transactions): $\(transactionMonthlySpent)")
-        print("   Total monthly spent: $\(monthlySpent)")
+
+        print("💰 [Last 30d] Tx balance: \(transactionBalance) | Bills: \(monthlyBillsTotal) | Total: \(totalBalance) | Spent+Bills: \(monthlySpent)")
     }
+
 }

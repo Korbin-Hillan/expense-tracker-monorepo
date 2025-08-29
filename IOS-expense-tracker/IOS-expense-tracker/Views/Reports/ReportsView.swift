@@ -17,6 +17,7 @@ struct ReportsView: View {
     @State private var showingImportSheet = false
     @StateObject private var billStorage = BillStorage.shared
     private let api = TransactionsAPI()
+    private let iso = ISO8601DateFormatter()
     
     enum TimeFrame: String, CaseIterable {
         case week = "Week"
@@ -187,11 +188,11 @@ struct ReportsView: View {
     }
     
     private var totalIncome: Double {
-        transactions.filter { $0.type == "income" }.reduce(0) { $0 + $1.amount }
+        filteredTransactions.filter { $0.type == "income" }.reduce(0) { $0 + $1.amount }
     }
-    
+
     private var totalExpenses: Double {
-        transactions.filter { $0.type == "expense" }.reduce(0) { $0 + $1.amount }
+        filteredTransactions.filter { $0.type == "expense" }.reduce(0) { $0 + $1.amount }
     }
     
     private var averageDailySpending: Double {
@@ -200,9 +201,10 @@ struct ReportsView: View {
     }
     
     private var categoryBreakdown: [(category: String, amount: Double)] {
-        let expenses = transactions.filter { $0.type == "expense" }
+        let expenses = filteredTransactions.filter { $0.type == "expense" }
         let grouped = Dictionary(grouping: expenses, by: { $0.category })
-        return grouped.map { (category: $0.key, amount: $0.value.reduce(0) { $0 + $1.amount }) }
+        return grouped
+            .map { (category: $0.key, amount: $0.value.reduce(0) { $0 + $1.amount }) }
             .sorted { $0.amount > $1.amount }
     }
     
@@ -221,6 +223,43 @@ struct ReportsView: View {
             let multiplier = billMultiplierForTimeframe(bill.frequency)
             return (category: "\(bill.name) (\(bill.frequency.rawValue))", amount: bill.amount * multiplier)
         }.sorted { $0.amount > $1.amount }
+    }
+    
+    /// Parse the transaction's date string into a Date.
+    /// If your DTO already uses `Date`, just return `tx.date`.
+    private func txDate(_ tx: TransactionDTO) -> Date? {
+        // If your DTO has `date` as String:
+        return iso.date(from: tx.date) // adjust if your property is named differently
+        // If your DTO has `date: Date`, use: return tx.date
+    }
+
+    /// Build a ClosedRange<Date> for the selected timeframe (rolling windows).
+    private func dateRange(for timeframe: TimeFrame) -> ClosedRange<Date> {
+        let now = Date()
+        let cal = Calendar.current
+        let start: Date
+        switch timeframe {
+        case .week:
+            start = cal.date(byAdding: .day, value: -7, to: now) ?? now
+        case .month:
+            start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        case .threeMonths:
+            start = cal.date(byAdding: .day, value: -90, to: now) ?? now
+        case .year:
+            start = cal.date(byAdding: .day, value: -365, to: now) ?? now
+        }
+        return start...now
+    }
+
+    /// Transactions restricted to the selectedTimeframe.
+    private var filteredTransactions: [TransactionDTO] {
+        let window = dateRange(for: selectedTimeframe)
+        // Pre-parse dates so the compiler doesn't choke on nested closures
+        let withDates: [(TransactionDTO, Date)] = transactions.compactMap { tx in
+            guard let d = txDate(tx) else { return nil }
+            return (tx, d)
+        }
+        return withDates.filter { window.contains($0.1) }.map { $0.0 }
     }
     
     private func billMultiplierForTimeframe(_ frequency: BillFrequency) -> Double {
