@@ -6,15 +6,19 @@
 //
 
 import SwiftUI
+import LocalAuthentication
+import UserNotifications
 
 struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) var colorScheme
     
-    @State private var notificationsEnabled = true
-    @State private var biometricEnabled = false
-    @State private var selectedDarkMode = "System"
+    @State private var notificationsEnabled = UserSettings.shared.notificationsEnabled
+    @State private var biometricEnabled = UserSettings.shared.biometricEnabled
+    @State private var selectedDarkMode = UserSettings.shared.darkModePreference
     @State private var showingDarkModeOptions = false
+    @State private var showingExportSheet = false
+    @State private var showingDeleteAlert = false
     
     private let darkModeOptions = ["Light", "Dark", "System"]
     
@@ -29,6 +33,9 @@ struct AccountSettingsView: View {
                         Text("Notifications")
                         Spacer()
                         Toggle("", isOn: $notificationsEnabled)
+                            .onChange(of: notificationsEnabled) { value in
+                                updateNotificationSettings(value)
+                            }
                     }
                     
                     HStack {
@@ -37,6 +44,9 @@ struct AccountSettingsView: View {
                         Text("Face ID / Touch ID")
                         Spacer()
                         Toggle("", isOn: $biometricEnabled)
+                            .onChange(of: biometricEnabled) { value in
+                                updateBiometricSettings(value)
+                            }
                     }
                     
                     Button(action: { showingDarkModeOptions = true }) {
@@ -57,7 +67,7 @@ struct AccountSettingsView: View {
                 
                 // MARK: - Data & Privacy
                 Section("Data & Privacy") {
-                    Button(action: { exportData() }) {
+                    Button(action: { showingExportSheet = true }) {
                         HStack {
                             Image(systemName: "square.and.arrow.down.fill")
                                 .foregroundColor(.green)
@@ -67,7 +77,7 @@ struct AccountSettingsView: View {
                     }
                     .foregroundColor(.primary)
                     
-                    Button(action: { showDeleteAccountAlert() }) {
+                    Button(action: { showingDeleteAlert = true }) {
                         HStack {
                             Image(systemName: "trash.fill")
                                 .foregroundColor(.red)
@@ -117,33 +127,106 @@ struct AccountSettingsView: View {
                 }
                 Button("Cancel", role: .cancel) { }
             }
+            .sheet(isPresented: $showingExportSheet) {
+                ExportDataSheet()
+            }
+            .alert("Delete Account", isPresented: $showingDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    deleteAccount()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This will permanently delete your account and all data. This action cannot be undone.")
+            }
         }
     }
     
     // MARK: - Actions
-    private func exportData() {
-        print("📤 Exporting user data...")
-        // TODO: Implement data export functionality
+    private func updateNotificationSettings(_ enabled: Bool) {
+        UserSettings.shared.notificationsEnabled = enabled
+        
+        if enabled {
+            requestNotificationPermissions()
+        } else {
+            // Disable notifications
+            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        }
     }
     
-    private func showDeleteAccountAlert() {
-        print("🗑️ Show delete account alert...")
-        // TODO: Implement delete account confirmation
+    private func updateBiometricSettings(_ enabled: Bool) {
+        if enabled {
+            authenticateWithBiometrics { success in
+                if success {
+                    UserSettings.shared.biometricEnabled = true
+                } else {
+                    DispatchQueue.main.async {
+                        self.biometricEnabled = false
+                    }
+                }
+            }
+        } else {
+            UserSettings.shared.biometricEnabled = false
+        }
+    }
+    
+    private func requestNotificationPermissions() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            DispatchQueue.main.async {
+                if !granted {
+                    self.notificationsEnabled = false
+                    UserSettings.shared.notificationsEnabled = false
+                }
+            }
+        }
+    }
+    
+    private func authenticateWithBiometrics(completion: @escaping (Bool) -> Void) {
+        let context = LAContext()
+        var error: NSError?
+        
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, 
+                                   localizedReason: "Enable biometric authentication for secure access") { success, authError in
+                completion(success)
+            }
+        } else {
+            completion(false)
+        }
+    }
+    
+    private func deleteAccount() {
+        print("🗑️ Deleting account...")
+        // TODO: Implement account deletion API call
     }
     
     private func openHelpSupport() {
-        print("❓ Opening help & support...")
-        // TODO: Open help documentation or support contact
+        if let url = URL(string: "https://support.yourapp.com") {
+            UIApplication.shared.open(url)
+        }
     }
     
     private func showAbout() {
         print("ℹ️ Showing about information...")
-        // TODO: Show app version, privacy policy, terms of service
+        // TODO: Show app version info sheet
     }
     
     private func applyDarkModeChange(_ mode: String) {
-        print("🌙 Applying dark mode change: \(mode)")
-        // TODO: Apply dark mode preference
-        // This would typically involve UserDefaults storage and app-wide theme changes
+        selectedDarkMode = mode
+        UserSettings.shared.darkModePreference = mode
+        
+        DispatchQueue.main.async {
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                for window in windowScene.windows {
+                    switch mode {
+                    case "Light":
+                        window.overrideUserInterfaceStyle = .light
+                    case "Dark":
+                        window.overrideUserInterfaceStyle = .dark
+                    default:
+                        window.overrideUserInterfaceStyle = .unspecified
+                    }
+                }
+            }
+        }
     }
 }

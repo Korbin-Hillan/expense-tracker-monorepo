@@ -14,6 +14,8 @@ struct ProfileCard: View {
     var onSignOut: () -> Void
     @Environment(\.colorScheme) var colorScheme
     @State private var showingAccountSettings = false
+    @State private var summary: TransactionSummary?
+    @State private var isLoadingStats = true
 
     private var adaptiveTextColor: Color {
         colorScheme == .dark ? .white : .white
@@ -92,31 +94,31 @@ struct ProfileCard: View {
                 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
                     ProfileStatCard(
-                        title: "Member Since",
-                        value: "Dec 2024",
-                        icon: "calendar",
-                        color: .blue
+                        title: "Total Spent",
+                        value: isLoadingStats ? "..." : "$\(String(format: "%.0f", summary?.totalExpenses ?? 0))",
+                        icon: "creditcard.fill",
+                        color: .red
                     )
                     
                     ProfileStatCard(
                         title: "Transactions",
-                        value: "156",
+                        value: isLoadingStats ? "..." : "\(summary?.totalTransactions ?? 0)",
                         icon: "chart.bar.fill",
                         color: .green
                     )
                     
                     ProfileStatCard(
-                        title: "Categories",
-                        value: "12",
+                        title: "Categories Used",
+                        value: isLoadingStats ? "..." : "\(summary?.categorySummary.count ?? 0)",
                         icon: "tag.fill",
                         color: .orange
                     )
                     
                     ProfileStatCard(
-                        title: "Account ID",
-                        value: String(profile.id.prefix(6)) + "...",
-                        icon: "number",
-                        color: .purple
+                        title: "Net Balance",
+                        value: isLoadingStats ? "..." : "$\(String(format: "%.0f", summary?.netAmount ?? 0))",
+                        icon: summary?.netAmount ?? 0 >= 0 ? "arrow.up.circle.fill" : "arrow.down.circle.fill",
+                        color: summary?.netAmount ?? 0 >= 0 ? .green : .red
                     )
                 }
             }
@@ -125,10 +127,15 @@ struct ProfileCard: View {
             VStack(spacing: 16) {
                 // Primary actions
                 HStack(spacing: 12) {
-                    Button(action: onRefresh) {
+                    Button(action: {
+                        onRefresh()
+                        Task { await loadProfileStats() }
+                    }) {
                         HStack {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 16, weight: .semibold))
+                                .rotationEffect(.degrees(isLoadingStats ? 360 : 0))
+                                .animation(isLoadingStats ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isLoadingStats)
                             Text("Refresh")
                                 .fontWeight(.semibold)
                         }
@@ -196,11 +203,27 @@ struct ProfileCard: View {
         .sheet(isPresented: $showingAccountSettings) {
             AccountSettingsView()
         }
+        .task {
+            await loadProfileStats()
+        }
     }
 
     private var initial: String {
         if let n = profile.name?.first { return String(n).uppercased() }
         if let e = profile.email?.first { return String(e).uppercased() }
         return "?"
+    }
+    
+    private func loadProfileStats() async {
+        isLoadingStats = true
+        
+        do {
+            let api = TransactionsAPI()
+            summary = try await api.getSummary()
+            isLoadingStats = false
+        } catch {
+            print("Failed to load profile stats: \(error)")
+            isLoadingStats = false
+        }
     }
 }

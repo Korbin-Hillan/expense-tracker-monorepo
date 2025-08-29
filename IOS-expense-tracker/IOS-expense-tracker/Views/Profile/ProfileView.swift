@@ -38,7 +38,11 @@ struct ProfileView: View {
             }
         case .data(let profile):
             ProfileCard(profile: profile,
-                        onRefresh: { Task { await loadProfile(force: true) } },
+                        onRefresh: { 
+                            Task { 
+                                await loadProfile(force: true)
+                            } 
+                        },
                         onSignOut: onSignOut)
         }
     }
