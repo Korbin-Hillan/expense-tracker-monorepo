@@ -46,7 +46,7 @@ struct TransactionRow: View {
             Text(amount >= 0 ? "+$\(amount, specifier: "%.2f")" : "-$\(abs(amount), specifier: "%.2f")")
                 .font(.subheadline)
                 .fontWeight(.semibold)
-                .foregroundColor(amount >= 0 ? .green : .white)
+                .foregroundColor(amount >= 0 ? .green : .red)
         }
         .padding(16)
         .background(.white.opacity(0.1))
