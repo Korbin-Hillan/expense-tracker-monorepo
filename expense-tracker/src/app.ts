@@ -8,6 +8,7 @@ import express, { type RequestHandler } from "express";
 import { ObjectId } from "mongodb";
 import { transactionsRouter } from "./routes/transactions.ts";
 import { importRouter } from "./routes/import.ts";
+import { aiRouter } from "./routes/ai.ts";
 
 import { router as authRouter } from "./routes/auth-exchange.ts";
 import { apiRateLimit, authRateLimit } from "./middleware/rate-limit.ts";
@@ -32,6 +33,7 @@ app.get("/", async (_req, res) => {
 });
 
 app.use(authRouter);
+app.use(aiRouter);
 
 app.get("/.well-known/jwks.json", async (_req, res) => {
   try {

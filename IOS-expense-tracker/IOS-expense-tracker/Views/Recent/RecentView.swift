@@ -17,9 +17,50 @@ struct RecentView: View {
     @State private var showingExportSheet = false
     @State private var showingImportSheet = false
     @State private var showingClearAllConfirmation = false
+    @State private var sortOption: SortOption = .dateNewest
+    @AppStorage("recent.sort.option") private var storedSortRaw: String = SortOption.dateNewest.rawValue
     private let api = TransactionsAPI()
+    private let iso = ISO8601DateFormatter()
 
-    var body: some View {
+    enum SortOption: String, CaseIterable, Identifiable {
+        case dateNewest
+        case dateOldest
+        case amountHigh
+        case amountLow
+        case categoryAZ
+        case categoryZA
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .dateNewest: return "Date (Newest)"
+            case .dateOldest: return "Date (Oldest)"
+            case .amountHigh: return "Amount (High → Low)"
+            case .amountLow: return "Amount (Low → High)"
+            case .categoryAZ: return "Category (A → Z)"
+            case .categoryZA: return "Category (Z → A)"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .dateNewest: return "calendar.badge.clock"
+            case .dateOldest: return "calendar"
+            case .amountHigh: return "arrow.down.circle"
+            case .amountLow: return "arrow.up.circle"
+            case .categoryAZ: return "textformat.abc"
+            case .categoryZA: return "textformat.abc.dottedunderline"
+            }
+        }
+    }
+
+    // Quick sort segmented control removed per request; Sort menu retained.
+
+    var body: some View { stackedLayout }
+
+    // MARK: - Stacked (iPhone) Layout
+    private var stackedLayout: some View {
         NavigationView {
             List {
                 if let error {
@@ -60,6 +101,9 @@ struct RecentView: View {
             }
             .navigationTitle("Recent")
             .navigationBarTitleDisplayMode(.large)
+            #if os(macOS)
+            .listStyle(.inset)
+            #endif
             .refreshable { await load() }
             .task { await load() }
             .toolbar {
@@ -87,10 +131,28 @@ struct RecentView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
+                    HStack(spacing: 12) {
+                        Menu {
+                            // Picker-like menu for sort options
+                            ForEach(SortOption.allCases) { option in
+                                Button {
+                                    sortOption = option
+                                    applySort()
+                                } label: {
+                                    Label(option.title, systemImage: option.systemImage)
+                                }
+                            }
+                        } label: {
+                            Label("Sort", systemImage: "arrow.up.arrow.down.circle")
+                        }
+                        EditButton()
+                    }
                 }
             }
         }
+        #if os(macOS)
+        .navigationViewStyle(.stack)
+        #endif
         .sheet(isPresented: $showingEditTransaction) {
             if let transaction = selectedTransaction {
                 EditTransactionSheet(transaction: transaction) { updatedTransaction in
@@ -104,11 +166,21 @@ struct RecentView: View {
         .sheet(isPresented: $showingImportSheet) {
             ImportDataSheet()
         }
+        .onAppear {
+            // Restore persisted sort option
+            if let restored = SortOption(rawValue: storedSortRaw) {
+                sortOption = restored
+            }
+        }
         .onChange(of: showingImportSheet) { _, isShowing in
             if !isShowing {
                 // Refresh transactions after import sheet is dismissed
                 Task { await load() }
             }
+        }
+        .onChange(of: sortOption) { _, newValue in
+            applySort()
+            storedSortRaw = newValue.rawValue
         }
         .alert("Delete Transaction", isPresented: $showingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
@@ -130,11 +202,14 @@ struct RecentView: View {
         }
     }
 
+    // (Split layout intentionally removed to match iOS single-tab design across platforms.)
+
     private func load() async {
         loading = true
         error = nil
         do {
             txs = try await api.list(limit: 100, skip: 0)
+            applySort()
         } catch {
             self.error = error.localizedDescription
         }
@@ -179,6 +254,8 @@ struct RecentView: View {
             txs[index] = transaction
             print("📱 RecentView: Updated transaction in local UI")
         }
+        // Keep list sorted according to selected option
+        applySort()
         
         Task {
             do {
@@ -225,6 +302,31 @@ struct RecentView: View {
                     print("🔄 RecentView: Reloaded transactions due to server error")
                 }
             }
+        }
+    }
+
+    private func applySort() {
+        switch sortOption {
+        case .dateNewest:
+            txs.sort { lhs, rhs in
+                let ld = iso.date(from: lhs.date) ?? Date.distantPast
+                let rd = iso.date(from: rhs.date) ?? Date.distantPast
+                return ld > rd
+            }
+        case .dateOldest:
+            txs.sort { lhs, rhs in
+                let ld = iso.date(from: lhs.date) ?? Date.distantFuture
+                let rd = iso.date(from: rhs.date) ?? Date.distantFuture
+                return ld < rd
+            }
+        case .amountHigh:
+            txs.sort { $0.amount > $1.amount }
+        case .amountLow:
+            txs.sort { $0.amount < $1.amount }
+        case .categoryAZ:
+            txs.sort { $0.category.localizedCaseInsensitiveCompare($1.category) == .orderedAscending }
+        case .categoryZA:
+            txs.sort { $0.category.localizedCaseInsensitiveCompare($1.category) == .orderedDescending }
         }
     }
 }

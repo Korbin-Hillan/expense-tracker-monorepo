@@ -14,6 +14,11 @@ export type TransactionDoc = {
   updatedAt: Date;
   // add this so TS knows the field exists
   dedupeHash?: string;
+  // AI-enrichment (optional)
+  categorySuggested?: string;
+  categoryConfidence?: number;
+  merchantCanonical?: string;
+  anomalyScore?: number;
 };
 
 // ✅ make this async
@@ -40,6 +45,11 @@ export async function ensureTransactionIndexes() {
         partialFilterExpression: { dedupeHash: { $exists: true } },
       }
     );
+  } catch (e) {
+    if (!(e as any).message?.includes("already exists")) throw e;
+  }
+  try {
+    await col.createIndex({ userId: 1, categorySuggested: 1 }, { name: "user_categorySuggested" });
   } catch (e) {
     if (!(e as any).message?.includes("already exists")) throw e;
   }
