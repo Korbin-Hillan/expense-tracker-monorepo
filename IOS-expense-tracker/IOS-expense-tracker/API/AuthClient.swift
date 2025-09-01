@@ -42,7 +42,7 @@ enum AuthError: LocalizedError {
 }
 
 final class AuthClient {
-    let base = URL(string: "http://192.168.0.119:3000")! // ← your API base
+    let base = URL(string: "http://172.16.225.231:3000")! // ← your API base
     
     func testConnection() async {
         print("🌐 AuthClient: Testing connection to \(base)")

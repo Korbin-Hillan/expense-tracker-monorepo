@@ -12,7 +12,7 @@ struct AppConfig {
     // MARK: - API Configuration
     
     #if DEBUG
-    static let baseURL = URL(string: "http://192.168.0.119:3000")!
+    static let baseURL = URL(string: "http://172.16.225.231:3000")!
     #else
     static let baseURL = URL(string: "https://your-production-api.com")!
     #endif

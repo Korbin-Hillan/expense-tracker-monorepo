@@ -63,7 +63,7 @@ struct MeResponse: Codable {
 }
 
 func auth(_ idToken: String) async throws -> LoginResponse {
-    var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/auth/session")!)
+    var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/auth/session")!)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
@@ -106,7 +106,7 @@ func userCheck() async {
         print(String(format: "⏳ Token time left: %.0fs", secs))
     }
     
-    var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/me")!)
+    var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/me")!)
     req.httpMethod = "GET"
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

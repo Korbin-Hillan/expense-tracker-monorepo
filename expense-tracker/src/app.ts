@@ -45,7 +45,7 @@ app.get("/.well-known/jwks.json", async (_req, res) => {
 });
 
 const PUB_PEM = process.env.APP_JWT_PUBLIC_PEM!;
-const APP_ISSUER = process.env.APP_JWT_ISSUER || "http://192.168.0.119:3000";
+const APP_ISSUER = process.env.APP_JWT_ISSUER || "http://172.16.225.231:3000";
 
 async function verifyAppJWT(authz?: string) {
   if (!authz) throw new Error("missing_authorization");
@@ -95,31 +95,31 @@ const deleteAccountHandler: RequestHandler = async (req, res) => {
     const userId = new ObjectId(String(payload.sub));
 
     console.log(`🗑️ DELETE /api/account: Deleting account for user ${userId}`);
-    
+
     const db = await getDb();
-    
+
     // Delete all user data in the correct order to avoid foreign key issues
     const operations = [
       // 1. Delete refresh tokens
       db.collection("refresh_tokens").deleteMany({ userId }),
-      
-      // 2. Delete transactions  
+
+      // 2. Delete transactions
       db.collection("transactions").deleteMany({ userId }),
-      
+
       // 3. Delete expenses
       db.collection("expenses").deleteMany({ userId }),
-      
+
       // 4. Finally delete the user
-      usersCollection(db).deleteOne({ _id: userId })
+      usersCollection(db).deleteOne({ _id: userId }),
     ];
 
     const results = await Promise.all(operations);
-    
+
     console.log(`✅ DELETE /api/account: Deleted data for user ${userId}:`, {
       refreshTokens: results[0].deletedCount,
-      transactions: results[1].deletedCount, 
+      transactions: results[1].deletedCount,
       expenses: results[2].deletedCount,
-      user: results[3].deletedCount
+      user: results[3].deletedCount,
     });
 
     if (results[3].deletedCount === 0) {
@@ -127,26 +127,30 @@ const deleteAccountHandler: RequestHandler = async (req, res) => {
       return;
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: "Account and all data successfully deleted",
       deletedData: {
         refreshTokens: results[0].deletedCount,
         transactions: results[1].deletedCount,
-        expenses: results[2].deletedCount
-      }
+        expenses: results[2].deletedCount,
+      },
     });
-    
   } catch (e) {
     console.error("DELETE /api/account error:", e);
-    
+
     if (e instanceof Error) {
-      if (e.message.includes("missing_authorization") || e.message.includes("invalid_authorization")) {
-        res.status(401).json({ error: "invalid_or_missing_authorization_header" });
+      if (
+        e.message.includes("missing_authorization") ||
+        e.message.includes("invalid_authorization")
+      ) {
+        res
+          .status(401)
+          .json({ error: "invalid_or_missing_authorization_header" });
         return;
       }
     }
-    
+
     res.status(401).json({ error: "invalid_or_missing_app_jwt" });
   }
 };
@@ -159,6 +163,6 @@ app.use(importRouter);
 // ---- Server ----
 const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://192.168.0.119:${PORT}`);
+  console.log(`Server running on http://172.16.225.231:${PORT}`);
   console.log(`Also available at http://localhost:${PORT}`);
 });

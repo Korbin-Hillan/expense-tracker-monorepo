@@ -55,7 +55,7 @@ struct ProfileView: View {
             return
         }
 
-        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/me")!)
+        var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/me")!)
         req.httpMethod = "GET"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
