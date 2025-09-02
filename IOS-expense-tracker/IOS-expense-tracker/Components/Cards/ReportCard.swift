@@ -15,13 +15,7 @@ struct ReportCard: View {
     let color: Color
     @Environment(\.colorScheme) var colorScheme
     
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .black
-    }
-    
-    private var adaptiveCardBackground: Color {
-        colorScheme == .dark ? Color(.systemGray6) : Color(.systemBackground)
-    }
+    // Adaptive colors handled by material card style
     
     var body: some View {
         VStack(spacing: 12) {
@@ -40,13 +34,11 @@ struct ReportCard: View {
                 Text("$\(value, specifier: "%.2f")")
                     .font(.title2)
                     .fontWeight(.bold)
-                    .foregroundColor(adaptiveTextColor)
+                    .foregroundColor(.primary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
-        .background(adaptiveCardBackground)
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+        .cardStyle(cornerRadius: 12)
     }
 }

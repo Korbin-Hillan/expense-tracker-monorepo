@@ -8,6 +8,8 @@ import { ImportService, ColumnMapping } from "../services/importService.ts";
 import * as XLSX from "xlsx";
 import { parse as csvParseSync } from "csv-parse/sync";
 import crypto from "crypto";
+import fetch from "node-fetch";
+import "dotenv/config";
 
 export const importRouter = Router();
 
@@ -45,6 +47,104 @@ function makeHash(tx: {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
+// --- AI helpers (OpenAI) ---
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+const OPENAI_MODEL_JSON = process.env.OPENAI_MODEL_JSON || "gpt-4o-mini";
+
+async function openaiClassify(entries: { description: string; merchant?: string }[]) {
+  if (!OPENAI_API_KEY || !entries.length) return [] as any[];
+  const system = `You normalize merchants and categorize bank transactions. 
+Return JSON with an array 'items' matching inputs order. Each item: { merchant: canonical brand name (e.g., "Walmart"), category: one of [Food, Transportation, Shopping, Bills, Entertainment, Health, Other], confidence: 0..1 }.
+Be conservative and avoid overfitting.`;
+  const user = JSON.stringify({ inputs: entries });
+  const resp = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_JSON,
+      messages: [ { role: "system", content: system }, { role: "user", content: user } ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    console.error("openai classify error", resp.status, text);
+    return [] as any[];
+  }
+  const data: any = await resp.json();
+  const content = data.choices?.[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.items) ? parsed.items : [];
+  } catch {
+    return [] as any[];
+  }
+}
+
+function heuristicNormalizeMerchant(desc: string): string {
+  let s = desc.toLowerCase();
+  // remove noise tokens
+  s = s.replace(/\b(pos|purchase|check ?card|visa|debit|credit|payment|auth|id)\b/gi, " ");
+  // remove store numbers and hashes
+  s = s.replace(/#?\d{3,}/g, " ");
+  // remove city/state suffixes (simple heuristic)
+  s = s.replace(/\b([A-Z]{2})\b/g, " ");
+  // common chains mapping
+  const map: [RegExp, string][] = [
+    [/walmart|wal\s*mart/i, "Walmart"],
+    [/target/i, "Target"],
+    [/costco/i, "Costco"],
+    [/kroger/i, "Kroger"],
+    [/safeway/i, "Safeway"],
+    [/amazon/i, "Amazon"],
+    [/starbucks/i, "Starbucks"],
+    [/mcdonald/i, "McDonald's"],
+    [/chipotle/i, "Chipotle"],
+    [/shell/i, "Shell"],
+    [/chevron/i, "Chevron"],
+    [/exxon/i, "Exxon"],
+    [/netflix/i, "Netflix"],
+    [/spotify/i, "Spotify"],
+    [/apple\s*(store|services)?/i, "Apple"],
+    [/google/i, "Google"],
+  ];
+  for (const [re, name] of map) if (re.test(desc)) return name;
+  // fallback: first non-generic word capitalized
+  const tokens = s.replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean);
+  const blacklist = new Set(["store","market","super","supermarket","gas","fuel","restaurant","cafe","co","inc"]);
+  const t = tokens.find((w) => !blacklist.has(w));
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : desc.trim();
+}
+
+async function enrichWithAI(rows: any[]) {
+  // Build unique descriptions to reduce tokens
+  const uniq = Array.from(new Set(rows.map((r) => String(r.description || "").trim()).filter(Boolean)));
+  // Prepare entries with heuristic merchant for context
+  const entries = uniq.slice(0, 200).map((d) => ({ description: d, merchant: heuristicNormalizeMerchant(d) }));
+  const results = await openaiClassify(entries);
+  const map = new Map<string, { merchant?: string; category?: string; confidence?: number }>();
+  for (let i = 0; i < entries.length; i++) {
+    const input = entries[i].description;
+    const r = results[i] || {};
+    map.set(input, { merchant: r.merchant || entries[i].merchant, category: r.category, confidence: r.confidence });
+  }
+  // Apply back to rows
+  for (const r of rows) {
+    const key = String(r.description || "").trim();
+    const m = map.get(key);
+    if (m) {
+      (r as any).merchantCanonical = m.merchant || heuristicNormalizeMerchant(key);
+      (r as any).categorySuggested = m.category;
+      (r as any).categoryConfidence = typeof m.confidence === "number" ? m.confidence : undefined;
+    } else {
+      (r as any).merchantCanonical = heuristicNormalizeMerchant(key);
+    }
+  }
+  return rows;
+}
+
 // routes/importRouter.ts
 function getMapping(body: any): ColumnMapping {
   const pick = (...c: (string | undefined)[]) =>
@@ -66,6 +166,13 @@ function getMapping(body: any): ColumnMapping {
     category: body.categoryColumn,
     note: body.noteColumn,
   };
+}
+
+function isDiscoverMapping(mapping: ColumnMapping): boolean {
+  const d = (mapping.date || "").toLowerCase();
+  const desc = (mapping.description || "").toLowerCase();
+  const amt = (mapping.amount || "").toLowerCase();
+  return d.includes("trans. date") && desc === "description" && amt === "amount";
 }
 
 function sniffDelimiter(firstLine: string): string {
@@ -157,7 +264,19 @@ importRouter.post(
         errors: parsed.errors.length,
       });
 
-      const preview = parsed.preview;
+      let preview = parsed.preview;
+
+      // Discover: filter out incomes (payments/credits)
+      if (isDiscoverMapping(mapping)) {
+        preview = preview.filter((tx: any) => (tx.type || "expense") === "expense");
+      }
+
+      // Enrich with AI (normalize + categorize) if key present
+      try {
+        preview = await enrichWithAI(preview);
+      } catch (e) {
+        console.warn("AI enrichment skipped (preview)", e);
+      }
 
       // Lightweight duplicate estimate using recent hashes (if available) or field comparison
       const col = await transactionsCollection();
@@ -190,7 +309,7 @@ importRouter.post(
       });
 
       return res.json({
-        previewRows: parsed.preview,
+        previewRows: preview,
         totalRows: parsed.totalRows,
         errors: parsed.errors,
         duplicates,
@@ -235,16 +354,39 @@ importRouter.post(
       const overwriteDuplicates = req.body.overwriteDuplicates === "true";
 
       // Parse FULL file once
-      const { rows, totalRows, errors } = await ImportService.parse(
+      let { rows, totalRows, errors } = await ImportService.parse(
         req.file.buffer,
         { mapping, kind }
       );
+
+      // Discover: filter out incomes (payments/credits)
+      if (isDiscoverMapping(mapping)) {
+        rows = rows.filter((tx: any) => (tx.type || "expense") === "expense");
+      }
+
+      // Optional AI enrichment for commit
+      const useAI = String(req.body.ai || req.body.useAI || "true").toLowerCase() !== "false";
+      const applyAICategory = String(req.body.applyAICategory || "false").toLowerCase() === "true";
+      if (useAI) {
+        try {
+          rows = await enrichWithAI(rows);
+          if (applyAICategory) {
+            // Apply suggested category when original missing
+            rows = rows.map((r: any) => ({
+              ...r,
+              category: r.category || r.categorySuggested || r.category,
+            }));
+          }
+        } catch (e) {
+          console.warn("AI enrichment skipped (commit)", e);
+        }
+      }
 
       const col = await transactionsCollection();
       const userObjectId = new ObjectId(userId);
 
       // Build bulk upserts with stable hash
-      const ops = rows.map((tx) => {
+      const ops = rows.map((tx: any) => {
         const dedupeHash = makeHash({
           date: tx.date,
           amount: tx.amount,

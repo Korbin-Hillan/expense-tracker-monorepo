@@ -16,7 +16,17 @@ struct SuggestedMapping: Decodable {
 }
 
 struct PreviewResp: Decodable {
-    struct Tx: Decodable { let date: String; let description: String; let amount: Double; let type: String?; let category: String?; let note: String? }
+    struct Tx: Decodable {
+        let date: String
+        let description: String
+        let amount: Double
+        let type: String?
+        let category: String?
+        let note: String?
+        let merchantCanonical: String?
+        let categorySuggested: String?
+        let categoryConfidence: Double?
+    }
     let previewRows: [Tx]
     let totalRows: Int
     let errors: [String]
@@ -39,7 +49,7 @@ struct ImportDataSheet: View {
     @State private var importing = false
     @State private var status: String = ""
 
-    private let backend = URL(string: "http://172.16.225.231:3000/api/import/preview")!  // change me
+    private let backend = URL(string: "http://192.168.0.119:3000/api/import/preview")!  // change me
 
     var body: some View {
         NavigationView {
@@ -112,12 +122,9 @@ struct ImportDataSheet: View {
                 status = "Generating preview…"
                 let preview = try await fetchPreview(fileURL: sandboxURL, mime: mime, mapping: mapping)
 
-                print("First row:", preview.previewRows.first.map { "\($0)" } ?? "none")
-
                 if let first = preview.previewRows.first {
-                    print("First row:", first)
-                } else {
-                    print("First row: none")
+                    print("First row canonical: \(first.merchantCanonical ?? first.description)")
+                    print("First row suggested category: \(first.categorySuggested ?? first.category ?? "n/a") confidence: \(first.categoryConfidence ?? -1)")
                 }
                 // Present previewRows & duplicates to the user.
                 // On user confirmation:
@@ -288,7 +295,7 @@ struct ImportDataSheet: View {
     
     private func fetchColumns(for fileURL: URL, mime: String) async throws -> ColumnsResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/import/columns")!)
+        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/columns")!)
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -318,7 +325,7 @@ struct ImportDataSheet: View {
         mapping: SuggestedMapping
     ) async throws -> PreviewResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/import/preview")!)
+        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/preview")!)
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -360,7 +367,7 @@ struct ImportDataSheet: View {
         overwriteDuplicates: Bool = false
     ) async throws -> CommitResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://172.16.225.231:3000/api/import/commit")!)
+        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/commit")!)
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 

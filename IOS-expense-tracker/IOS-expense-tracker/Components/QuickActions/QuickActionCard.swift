@@ -24,18 +24,12 @@ struct QuickActionCard: View {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 100)
-            .background(.white.opacity(0.15))
-    
-            .cornerRadius(AppConfig.UI.cornerRadius)
-            .overlay(
-                RoundedRectangle(cornerRadius: AppConfig.UI.cornerRadius)
-                    .stroke(.white.opacity(0.2), lineWidth: 1)
-            )
+            .cardStyle(cornerRadius: AppConfig.UI.cornerRadius)
             .scaleEffect(isPressed ? 0.95 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())

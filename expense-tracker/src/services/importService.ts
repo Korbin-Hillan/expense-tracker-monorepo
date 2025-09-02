@@ -26,6 +26,10 @@ export interface ImportableTransaction {
   type?: "expense" | "income";
   category?: string;
   note?: string;
+  // AI enrichment (optional)
+  merchantCanonical?: string;
+  categorySuggested?: string;
+  categoryConfidence?: number;
 }
 
 export interface ImportResult {
@@ -279,11 +283,13 @@ export class ImportService {
 
     // Type inference: we store amounts positive; sign derived from type
     let type: "expense" | "income";
-    if (mapping.type && row[mapping.type]) {
+    if (this.isDiscoverMapping(mapping)) {
+      // Discover CSV often uses positive = charge, negative = credit/payment
+      type = parsedAmt > 0 ? "expense" : "income";
+    } else if (mapping.type && row[mapping.type]) {
       const t = String(row[mapping.type]).toLowerCase();
       if (/(income|deposit|credit|refund|payment)/.test(t)) type = "income";
-      else if (/(expense|debit|withdrawal|purchase|charge)/.test(t))
-        type = "expense";
+      else if (/(expense|debit|withdrawal|purchase|charge)/.test(t)) type = "expense";
       else type = parsedAmt < 0 ? "income" : "expense";
     } else {
       type = parsedAmt < 0 ? "income" : "expense";
@@ -307,6 +313,14 @@ export class ImportService {
       category,
       note,
     };
+  }
+
+  private static isDiscoverMapping(mapping: ColumnMapping): boolean {
+    const d = (mapping.date || "").toLowerCase();
+    const desc = (mapping.description || "").toLowerCase();
+    const amt = (mapping.amount || "").toLowerCase();
+    // Heuristic: classic Discover export headers
+    return d.includes("trans. date") && desc === "description" && amt === "amount";
   }
 
   /**
@@ -429,8 +443,11 @@ export class ImportService {
       userId,
       type: transaction.type || "expense",
       amount: transaction.amount,
-      category: transaction.category || "Other",
-      note: transaction.note || transaction.description,
+      category: transaction.category || transaction.categorySuggested || "Other",
+      note: transaction.merchantCanonical || transaction.note || transaction.description,
+      merchantCanonical: transaction.merchantCanonical,
+      categorySuggested: transaction.categorySuggested,
+      categoryConfidence: transaction.categoryConfidence,
       date: dateUtc, // ← the real transaction day
       createdAt: now, // import timestamp (today)
       updatedAt: now,

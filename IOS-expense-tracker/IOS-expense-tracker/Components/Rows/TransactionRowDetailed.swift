@@ -60,7 +60,7 @@ struct TransactionRowDetailed: View {
                     Text(transaction.note ?? transaction.category)
                         .font(.headline)
                         .fontWeight(.medium)
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                         .lineLimit(1)
                     
                     Spacer()
@@ -102,7 +102,8 @@ struct TransactionRowDetailed: View {
                 }
             }
         }
-        .padding(.vertical, 8)
+        .padding(12)
+        .cardStyle(cornerRadius: 16)
         .contentShape(Rectangle())
     }
 }

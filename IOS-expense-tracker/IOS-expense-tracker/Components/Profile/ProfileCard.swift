@@ -193,13 +193,7 @@ struct ProfileCard: View {
             }
         }
         .padding(28)
-        .background(.white.opacity(0.15))
-        .cornerRadius(24)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(.white.opacity(0.3), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
+        .cardStyle(cornerRadius: 24)
         .sheet(isPresented: $showingAccountSettings) {
             AccountSettingsView(onSignOut: onSignOut)
         }

@@ -20,11 +20,11 @@ struct ErrorCard: View {
             VStack(spacing: 8) {
                 Text("Something went wrong")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 
                 Text(message)
                     .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
             
@@ -33,19 +33,13 @@ struct ErrorCard: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(.white)
+                    .background(Color.white)
                     .foregroundColor(.black)
                     .cornerRadius(12)
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity)
-        .background(.white.opacity(0.15))
-        
-        .cornerRadius(20)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(.white.opacity(0.2), lineWidth: 1)
-        )
+        .cardStyle(cornerRadius: 20)
     }
 }

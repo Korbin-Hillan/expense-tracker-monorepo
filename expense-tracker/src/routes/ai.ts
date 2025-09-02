@@ -2,6 +2,8 @@ import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { requireAppJWT } from "../middleware/auth.ts";
 import { transactionsCollection } from "../database/transactions.ts";
+import fetch from "node-fetch";
+import "dotenv/config";
 
 export const aiRouter = Router();
 
@@ -22,6 +24,332 @@ type AIInsight = {
 
 function toISODateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
+}
+
+// --- OpenAI helpers ---
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+const OPENAI_MODEL_JSON = process.env.OPENAI_MODEL_JSON || "gpt-4o-mini";
+const OPENAI_MODEL_TEXT = process.env.OPENAI_MODEL_TEXT || "gpt-4o-mini";
+
+async function openaiChatJSON(systemPrompt: string, userPrompt: string) {
+  if (!OPENAI_API_KEY) throw new Error("missing_OPENAI_API_KEY");
+  const resp = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_JSON,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`openai_error ${resp.status}: ${text}`);
+  }
+  const data: any = await resp.json();
+  const content = data.choices?.[0]?.message?.content || "{}";
+  return JSON.parse(content);
+}
+
+async function openaiChatText(systemPrompt: string, userPrompt: string) {
+  if (!OPENAI_API_KEY) throw new Error("missing_OPENAI_API_KEY");
+  const resp = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_TEXT,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`openai_error ${resp.status}: ${text}`);
+  }
+  const data: any = await resp.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+async function openaiChatStream(systemPrompt: string, userPrompt: string) {
+  if (!OPENAI_API_KEY) throw new Error("missing_OPENAI_API_KEY");
+  const resp = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_TEXT,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      stream: true,
+    }),
+  });
+  if (!resp.ok || !resp.body) {
+    const text = await resp.text();
+    throw new Error(`openai_stream_error ${resp.status}: ${text}`);
+  }
+  return resp;
+}
+
+type Aggregates = {
+  timeframe: { from: string; to: string; months: number };
+  totals: { expense: number; income: number; net: number };
+  categories: Array<{ category: string; total: number }>;
+  topMerchants: Array<{ merchant: string; total: number; count: number }>;
+  outliers: Array<{ date: string; category: string; amount: number; note?: string }>;
+  subs: Array<{ note: string; count: number; avg: number; monthlyEstimate: number; frequency: string }>;
+};
+
+async function computeAggregates(userId: string): Promise<Aggregates> {
+  const col = await transactionsCollection();
+  const since = new Date();
+  since.setMonth(since.getMonth() - 12);
+  const now = new Date();
+  const txs = await col
+    .find({ userId: new ObjectId(userId), date: { $gte: since } })
+    .sort({ date: -1 })
+    .limit(5000)
+    .toArray();
+
+  const expenses = txs.filter((t) => t.type === "expense");
+  const income = txs.filter((t) => t.type === "income");
+  const expenseSum = expenses.reduce((a, b) => a + (b.amount || 0), 0);
+  const incomeSum = income.reduce((a, b) => a + (b.amount || 0), 0);
+  const net = incomeSum - expenseSum;
+
+  const catMap = new Map<string, number>();
+  for (const t of expenses) catMap.set(t.category, (catMap.get(t.category) ?? 0) + t.amount);
+  const categories = [...catMap.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total).slice(0, 15);
+
+  const merchantMap = new Map<string, { total: number; count: number }>();
+  for (const t of expenses) {
+    const key = (t.merchantCanonical || t.note || "").toLowerCase().trim() || t.category;
+    const val = merchantMap.get(key) || { total: 0, count: 0 };
+    val.total += t.amount; val.count += 1; merchantMap.set(key, val);
+  }
+  const topMerchants = [...merchantMap.entries()].map(([merchant, v]) => ({ merchant, total: v.total, count: v.count }))
+    .sort((a, b) => b.total - a.total).slice(0, 10);
+
+  // Outliers (z-score > 2)
+  const amounts = expenses.map((t) => t.amount);
+  const mean = amounts.reduce((a, b) => a + b, 0) / Math.max(1, amounts.length);
+  const variance = amounts.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / Math.max(1, amounts.length);
+  const std = Math.sqrt(variance);
+  const threshold = mean + 2 * std;
+  const outliers = expenses
+    .filter((t) => t.amount > threshold)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 10)
+    .map((t) => ({ date: toISODateOnly(t.date), category: t.category, amount: t.amount, note: (t.note || undefined) }));
+
+  // Subscriptions: repeating normalized notes with strict filtering to avoid groceries/etc.
+  const byNote = new Map<string, { sum: number; count: number; dates: Date[]; categories: Map<string, number> }>();
+  for (const t of expenses) {
+    const k = (t.note || "").toLowerCase().trim();
+    if (!k) continue;
+    const v = byNote.get(k) || { sum: 0, count: 0, dates: [], categories: new Map() };
+    v.sum += t.amount; v.count += 1; v.dates.push(t.date);
+    v.categories.set(t.category, (v.categories.get(t.category) ?? 0) + 1);
+    byNote.set(k, v);
+  }
+  const subscriptionKeywords = [
+    // general
+    "subscription","member","membership","plan","service","auto-pay",
+    // streaming / media
+    "netflix","hulu","disney","max","spotify","apple music","music","tv","stream","youtube","prime video",
+    // cloud / software
+    "icloud","google storage","google one","drive","dropbox","onedrive","adobe","microsoft","office","notion","slack","1password","github",
+    // telecom / utilities / insurance / gym
+    "att","at&t","verizon","t-mobile","xfinity","comcast","spectrum","internet","fiber","mobile","cell","phone","insurance","gym","fitness","peloton"
+  ];
+  const excludeKeywords = [
+    // groceries / retail / restaurants / fuel etc.
+    "grocery","groceries","market","supermarket","walmart","target","costco","kroger","safeway","aldi","heb","publix","winco",
+    "mcdonald","starbucks","chipotle","restaurant","dining","uber","doordash","instacart","chevron","shell","exxon","gas","fuel","pharmacy","coffee"
+  ];
+  const allowedCategories = new Set([
+    "Subscriptions","Utilities","Internet","Telecom","Mobile","Insurance","Streaming","Software","Music","TV","Cloud"
+  ]);
+  const bannedCategories = new Set([
+    "Groceries","Grocery","Supermarket","Restaurants","Dining","Gas","Fuel","Retail","Coffee","Pharmacy","Convenience"
+  ]);
+
+  function looksLikeSubscription(note: string, cats: Map<string, number>): boolean {
+    const n = note.toLowerCase();
+    if (excludeKeywords.some((w) => n.includes(w))) return false;
+    if (subscriptionKeywords.some((w) => n.includes(w))) return true;
+    // category voting
+    let topCat: string | undefined;
+    let topCount = 0;
+    for (const [c, cnt] of cats) { if (cnt > topCount) { topCount = cnt; topCat = c; } }
+    if (topCat && allowedCategories.has(topCat)) return true;
+    if (topCat && bannedCategories.has(topCat)) return false;
+    return false;
+  }
+
+  const subs = [...byNote.entries()]
+    .map(([note, v]) => {
+      const s = [...v.dates].sort((a, b) => a.getTime() - b.getTime());
+      const gaps = zipDiffDays(s);
+      const med = median(gaps);
+      const freq = gapToFreqLabel(med);
+      const factor = freqToMonthlyFactor(freq);
+      const avg = v.sum / Math.max(1, v.count);
+      return { note, count: v.count, avg, monthlyEstimate: avg * factor, frequency: freq, cats: v.categories };
+    })
+    .filter((x) => x.count >= 3 && looksLikeSubscription(x.note, x.cats))
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate)
+    .slice(0, 10)
+    .map((x) => ({ note: x.note, count: x.count, avg: x.avg, monthlyEstimate: x.monthlyEstimate, frequency: x.frequency }));
+
+  return {
+    timeframe: { from: toISODateOnly(since), to: toISODateOnly(now), months: 12 },
+    totals: { expense: expenseSum, income: incomeSum, net },
+    categories,
+    topMerchants,
+    outliers,
+    subs,
+  };
+}
+
+// ---- Health score (0..100) computed from aggregates and short-term volatility ----
+function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
+
+async function computeHealthScore(userId: string) {
+  const aggs = await computeAggregates(userId);
+  const expense = aggs.totals.expense;
+  const income = aggs.totals.income;
+  const savingsRate = income > 0 ? clamp((income - expense) / income, -1, 1) : -1; // -1..1
+
+  // Weekly volatility (last ~12 weeks)
+  const col = await transactionsCollection();
+  const since = new Date(); since.setDate(since.getDate() - 90);
+  const txs = await col.find({ userId: new ObjectId(userId), date: { $gte: since } }).toArray();
+  const expenses = txs.filter((t) => t.type === "expense");
+  const weeks = new Map<string, number>();
+  for (const t of expenses) {
+    const d = new Date(t.date);
+    // ISO week key yyyy-ww
+    const yr = d.getUTCFullYear();
+    const onejan = new Date(Date.UTC(yr,0,1));
+    const week = Math.ceil((((d.getTime()-onejan.getTime())/86400000)+onejan.getUTCDay()+1)/7);
+    const key = `${yr}-${String(week).padStart(2,'0')}`;
+    weeks.set(key, (weeks.get(key) ?? 0) + (t.amount || 0));
+  }
+  const weekly = [...weeks.values()];
+  const wMean = weekly.length ? weekly.reduce((a,b)=>a+b,0)/weekly.length : 0;
+  const wStd = weekly.length ? Math.sqrt(weekly.reduce((acc,x)=>acc+Math.pow(x-wMean,2),0)/weekly.length) : 0;
+  const volatility = wMean > 0 ? clamp(wStd / wMean, 0, 2) : 0; // coefficient of variation 0..2
+
+  // Category concentration (share of top category)
+  const totalCat = aggs.categories.reduce((a,b)=>a+b.total,0) || 1;
+  const topShare = aggs.categories.length ? Math.max(...aggs.categories.map(c=>c.total))/totalCat : 0;
+
+  // Subscription burden (estimate monthly subscriptions share)
+  const subsMonthly = aggs.subs.reduce((a,b)=>a+(b.monthlyEstimate||0),0);
+  const monthlySpend = expense / 12; // rough when 12m window; for current month we'd compute separately
+  const subsShare = monthlySpend>0 ? clamp(subsMonthly / monthlySpend, 0, 1.5) : 0;
+
+  // Component scores
+  const components = [
+    { key: "savings_rate", label: "Savings Rate", max: 40, score: clamp((savingsRate) * 200, 0, 40) }, // >=20% -> 40
+    { key: "net_positive", label: "Net Positive Cashflow", max: 20, score: clamp(((income-expense)/Math.max(income,1))*20 + (income>expense?10:0), 0, 20) },
+    { key: "stability", label: "Spending Stability", max: 20, score: clamp((1 - volatility/1.0) * 20, 0, 20) },
+    { key: "diversification", label: "Category Diversification", max: 10, score: clamp((1 - topShare) * 10, 0, 10) },
+    { key: "subs_burden", label: "Subscription Burden", max: 10, score: clamp((1 - subsShare) * 10, 0, 10) },
+  ];
+  const totalScore = Math.round(components.reduce((a,c)=>a+c.score,0));
+
+  // Simple recommendations
+  const recs: string[] = [];
+  if (savingsRate < 0.1) recs.push("Increase savings rate towards 15–20% by trimming top categories.");
+  if (volatility > 0.6) recs.push("Smooth spending by setting weekly caps on variable categories.");
+  if (topShare > 0.35) recs.push("Reduce reliance on your top category; set a monthly budget.");
+  if (subsShare > 0.2) recs.push("Review subscriptions; aim for < 15% of monthly spend.");
+
+  return { score: totalScore, components: components.map(c=>({ key: c.key, label: c.label, score: Math.round(c.score), max: c.max })), recommendations: recs, totals: aggs.totals };
+}
+
+// ---- Proactive alerts (computed on demand) ----
+type Alert = { id: string; title: string; body: string; severity: "info"|"warning"|"critical" };
+async function computeAlerts(userId: string): Promise<Alert[]> {
+  const col = await transactionsCollection();
+  const now = new Date();
+  const since = new Date(); since.setMonth(since.getMonth()-2);
+  const txs = await col.find({ userId: new ObjectId(userId), date: { $gte: since } }).toArray();
+  const expenses = txs.filter(t=>t.type==="expense");
+  const alerts: Alert[] = [];
+
+  // 1) Overspend this week vs last 4 weeks avg
+  const dayMs = 86400000;
+  const last7 = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs <= 7);
+  const prev28 = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs > 7 && (now.getTime()-new Date(t.date).getTime())/dayMs <= 35);
+  const sum = (arr:any[])=> arr.reduce((a,b)=>a+(b.amount||0),0);
+  const w = sum(last7);
+  const prevAvg = prev28.length ? (sum(prev28)/4) : 0;
+  if (prevAvg>0 && w > prevAvg*1.2 && w > 100) {
+    const pct = Math.round((w/prevAvg - 1)*100);
+    alerts.push({ id: cryptoRandomId(), title: "This week trending high", body: `Spending is ${pct}% above your recent weekly average. Consider pausing a few discretionary purchases.`, severity: pct>40?"critical":"warning" });
+  }
+
+  // 2) Category spike this month vs last month
+  const ym = now.toISOString().slice(0,7);
+  const lastMonth = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lastMonthKey = lastMonth.toISOString().slice(0,7);
+  const byCat = (arr:any[])=> {
+    const m = new Map<string,number>();
+    for (const t of arr) m.set(t.category, (m.get(t.category)||0)+t.amount);
+    return m;
+  };
+  const thisMonth = expenses.filter(t=> toISODateOnly(t.date).startsWith(ym));
+  const prevMonth = expenses.filter(t=> toISODateOnly(t.date).startsWith(lastMonthKey));
+  const m1 = byCat(thisMonth), m0 = byCat(prevMonth);
+  for (const [cat, amt] of m1) {
+    const base = m0.get(cat)||0; if (amt>100 && base>0 && amt>base*1.3) {
+      const pct = Math.round((amt/base - 1)*100);
+      alerts.push({ id: cryptoRandomId(), title: `${cat} up ${pct}%`, body: `You're spending more on ${cat} this month ($${amt.toFixed(0)} vs $${base.toFixed(0)} last month).`, severity: pct>60?"warning":"info" });
+    }
+  }
+
+  // 3) Large transaction alert in last 7 days
+  const last7Tx = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs <= 7);
+  const amounts = expenses.map(t=>t.amount);
+  const mean = amounts.length? amounts.reduce((a,b)=>a+b,0)/amounts.length: 0;
+  const variance = amounts.length? amounts.reduce((acc,x)=>acc+Math.pow(x-mean,2),0)/amounts.length: 0;
+  const std = Math.sqrt(variance);
+  for (const t of last7Tx) {
+    if (t.amount >= Math.max(300, mean + 2.5*std)) {
+      alerts.push({ id: cryptoRandomId(), title: "Large purchase", body: `${toISODateOnly(t.date)} • ${t.category}${t.note?" • "+t.note:""}: $${t.amount.toFixed(2)}`, severity: "info" });
+    }
+  }
+
+  // 4) Subscriptions burden
+  const aggs = await computeAggregates(userId);
+  const subsMonthly = aggs.subs.reduce((a,b)=>a+(b.monthlyEstimate||0),0);
+  const monthlySpend = aggs.totals.expense/12;
+  if (subsMonthly > 0 && monthlySpend>0 && subsMonthly/monthlySpend > 0.25) {
+    alerts.push({ id: cryptoRandomId(), title: "Subscriptions heavy", body: `Estimated subscriptions ~$${subsMonthly.toFixed(0)}/mo may exceed 25% of monthly spending. Review to save.`, severity: "info" });
+  }
+
+  return alerts.slice(0, 8);
 }
 
 aiRouter.get("/api/ai/insights", requireAppJWT, async (req, res) => {
@@ -243,6 +571,195 @@ aiRouter.post("/api/ai/assistant", requireAppJWT, async (req, res) => {
   } catch (e) {
     console.error("/api/ai/assistant error", e);
     res.status(500).json({ error: "assistant_failed" });
+  }
+});
+
+// --- GPT-powered structured insights ---
+aiRouter.get("/api/ai/insights/gpt", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const aggs = await computeAggregates(userId);
+    const system = "You are a financial insights assistant. Given user aggregates, produce JSON matching the schema and be concise, practical, and non-judgmental.";
+    const user = JSON.stringify({
+      schema: {
+        type: "object",
+        properties: {
+          insights: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                title: { type: "string" },
+                description: { type: "string" },
+                category: { enum: ["pattern", "anomaly", "prediction", "optimization"] },
+                confidence: { type: "number" },
+                actionable: { type: "boolean" },
+              },
+              required: ["id", "title", "description", "category", "confidence"],
+            },
+          },
+          narrative: { type: "string" },
+          savings_playbook: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    description: { type: "string" },
+                    impact: { type: "string" },
+                  },
+                  required: ["title", "description"],
+                },
+              },
+            },
+          },
+          budget: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                category: { type: "string" },
+                suggestedMonthly: { type: "number" },
+              },
+              required: ["category", "suggestedMonthly"],
+            },
+          },
+          subscriptions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                note: { type: "string" },
+                monthlyEstimate: { type: "number" },
+                priority: { type: "string" },
+              },
+              required: ["note", "monthlyEstimate"],
+            },
+          },
+        },
+        required: ["insights"],
+      },
+      aggregates: aggs,
+      instructions: "Fill id with any unique string. Provide 6-8 high quality insights. Put forecast explanation in narrative. Savings items should be concrete. Budget should cover top categories only. Subscriptions prioritize higher monthlyEstimate.",
+    });
+    const json = await openaiChatJSON(system, user);
+    res.json(json);
+  } catch (e) {
+    console.error("/api/ai/insights/gpt error", e);
+    res.status(500).json({ error: "gpt_insights_failed" });
+  }
+});
+
+// --- GPT conversational assistant using aggregates context ---
+aiRouter.post("/api/ai/assistant/gpt", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const prompt = String(req.body?.prompt || "").trim();
+    if (!prompt) { res.status(400).json({ error: "missing_prompt" }); return; }
+    const aggs = await computeAggregates(userId);
+    const system = "You are a helpful finance assistant. Answer only using the provided aggregates. Be precise with numbers. If uncertain, say so. Keep replies under 8 sentences.";
+    const user = `User question: ${prompt}\n\nAggregates JSON:\n${JSON.stringify(aggs)}`;
+    const text = await openaiChatText(system, user);
+    res.json({ reply: text });
+  } catch (e) {
+    console.error("/api/ai/assistant/gpt error", e);
+    res.status(500).json({ error: "assistant_gpt_failed" });
+  }
+});
+
+// --- GPT assistant streaming (SSE proxy) ---
+aiRouter.post("/api/ai/assistant/gpt/stream", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const prompt = String(req.body?.prompt || "").trim();
+    if (!prompt) { res.status(400).json({ error: "missing_prompt" }); return; }
+    const aggs = await computeAggregates(userId);
+    const system = "You are a helpful finance assistant. Answer only using the provided aggregates. Be precise with numbers. If uncertain, say so.";
+    const user = `User question: ${prompt}\n\nAggregates JSON:\n${JSON.stringify(aggs)}`;
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const upstream = await openaiChatStream(system, user);
+    const body: any = upstream.body;
+    // node-fetch returns a Node.js Readable stream; Web fetch returns a web stream
+    if (body && typeof body.getReader === "function") {
+      // Web stream
+      const reader = body.getReader();
+      const encoder = new TextEncoder();
+      (async function pump() {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+          res.write(encoder.encode("\n\n"));
+        } catch (e) {
+          console.error("stream pipe error (web)", e);
+        } finally {
+          try { res.end(); } catch {}
+        }
+      })();
+    } else if (body && typeof body.pipe === "function") {
+      // Node Readable stream
+      body.on("error", (e: any) => {
+        console.error("stream pipe error (node)", e);
+        try { res.end(); } catch {}
+      });
+      body.pipe(res);
+    } else {
+      console.error("No upstream body to stream");
+      res.end();
+    }
+  } catch (e) {
+    console.error("/api/ai/assistant/gpt/stream error", e);
+    if (!res.headersSent) res.status(500).json({ error: "assistant_gpt_stream_failed" });
+  }
+});
+
+// ---- Health score endpoint ----
+aiRouter.get("/api/ai/health-score", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const payload = await computeHealthScore(userId);
+    res.json(payload);
+  } catch (e) {
+    console.error("/api/ai/health-score error", e);
+    res.status(500).json({ error: "health_score_failed" });
+  }
+});
+
+// ---- Proactive alerts endpoint ----
+aiRouter.get("/api/ai/alerts", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const alerts = await computeAlerts(userId);
+    res.json({ alerts });
+  } catch (e) {
+    console.error("/api/ai/alerts error", e);
+    res.status(500).json({ error: "alerts_failed" });
+  }
+});
+
+// --- GPT Weekly Digest (on-demand) ---
+aiRouter.get("/api/ai/digest/gpt", requireAppJWT, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const aggs = await computeAggregates(userId);
+    const system = "You create concise weekly money recaps. Use the aggregates to compare this week vs last, highlight notable categories or spikes, and list 1-3 action items. Keep it under 10 sentences.";
+    const user = JSON.stringify({ aggregates: aggs, period: "weekly" });
+    const text = await openaiChatText(system, user);
+    res.json({ digest: text });
+  } catch (e) {
+    console.error("/api/ai/digest/gpt error", e);
+    res.status(500).json({ error: "digest_failed" });
   }
 });
 

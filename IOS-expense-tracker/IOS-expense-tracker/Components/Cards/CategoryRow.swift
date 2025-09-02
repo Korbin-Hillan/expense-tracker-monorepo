@@ -17,9 +17,7 @@ struct CategoryRow: View {
         total > 0 ? (item.amount / total) * 100 : 0
     }
     
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .black
-    }
+    // Use system adaptive colors inside material cards
     
     var body: some View {
         VStack(spacing: 8) {
@@ -27,7 +25,7 @@ struct CategoryRow: View {
                 Text(item.category)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(adaptiveTextColor)
+                    .foregroundColor(.primary)
                 
                 Spacer()
                 
@@ -35,7 +33,7 @@ struct CategoryRow: View {
                     Text("$\(item.amount, specifier: "%.2f")")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                     
                     Text("\(percentage, specifier: "%.1f")%")
                         .font(.caption)
@@ -48,8 +46,6 @@ struct CategoryRow: View {
                 .scaleEffect(x: 1, y: 1.5)
         }
         .padding(16)
-        .background(colorScheme == .dark ? Color(.systemGray6) : Color(.systemBackground))
-        .cornerRadius(10)
-        .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
+        .cardStyle(cornerRadius: 10)
     }
 }

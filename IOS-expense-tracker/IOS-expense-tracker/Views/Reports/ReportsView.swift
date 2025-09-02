@@ -46,7 +46,7 @@ struct ReportsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Time Period")
                             .font(.headline)
-                            .foregroundColor(adaptiveTextColor)
+                            .foregroundColor(.primary)
                         
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
@@ -119,7 +119,7 @@ struct ReportsView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Category Breakdown")
                                 .font(.headline)
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
                             
                             VStack(spacing: 12) {
@@ -136,7 +136,7 @@ struct ReportsView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Recurring Bills Breakdown")
                                 .font(.headline)
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
                             
                             VStack(spacing: 12) {

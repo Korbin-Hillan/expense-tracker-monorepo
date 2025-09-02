@@ -11,7 +11,7 @@ extension AuthClient {
         print("🔄 AuthClient: Starting token refresh...")
         print("🔄 AuthClient: Refresh token: \(refreshToken.prefix(20))...")
         
-        let url = URL(string: "http://172.16.225.231:3000/api/auth/refresh")!
+        let url = URL(string: "http://192.168.0.119:3000/api/auth/refresh")!
         print("🌐 AuthClient: Refresh URL: \(url)")
         
         var req = URLRequest(url: url)

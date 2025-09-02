@@ -7,10 +7,15 @@ import SwiftUI
 
 struct AgentChatView: View {
     struct ChatMessage: Identifiable {
-        let id = UUID()
+        let id: UUID
         let role: Role
         let text: String
         enum Role { case user, assistant }
+        init(id: UUID = UUID(), role: Role, text: String) {
+            self.id = id
+            self.role = role
+            self.text = text
+        }
     }
 
     @State private var messages: [ChatMessage] = [
@@ -69,15 +74,28 @@ struct AgentChatView: View {
         input = ""
         messages.append(.init(role: .user, text: question))
         sending = true
+        // Append a placeholder assistant message we will update as chunks arrive
+        let assistantId = UUID()
+        messages.append(.init(id: assistantId, role: .assistant, text: ""))
         Task {
-            defer { sending = false }
             do {
-                let reply = try await AIClient().ask(question)
-                await MainActor.run { messages.append(.init(role: .assistant, text: reply)) }
+                var acc = ""
+                for try await chunk in AIClient().askGPTStream(question) {
+                    acc += chunk
+                    await MainActor.run {
+                        if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                            messages[idx] = .init(id: assistantId, role: .assistant, text: acc)
+                        }
+                    }
+                }
             } catch {
-                await MainActor.run { messages.append(.init(role: .assistant, text: "Sorry, I couldn't process that right now.")) }
+                await MainActor.run {
+                    if let idx = messages.lastIndex(where: { $0.id == assistantId }) {
+                        messages[idx] = .init(id: assistantId, role: .assistant, text: "Sorry, I couldn't process that right now.")
+                    }
+                }
             }
+            await MainActor.run { sending = false }
         }
     }
 }
-

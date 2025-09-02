@@ -45,7 +45,7 @@ app.get("/.well-known/jwks.json", async (_req, res) => {
 });
 
 const PUB_PEM = process.env.APP_JWT_PUBLIC_PEM!;
-const APP_ISSUER = process.env.APP_JWT_ISSUER || "http://172.16.225.231:3000";
+const APP_ISSUER = process.env.APP_JWT_ISSUER || "http://192.168.0.119:3000";
 
 async function verifyAppJWT(authz?: string) {
   if (!authz) throw new Error("missing_authorization");
@@ -163,6 +163,6 @@ app.use(importRouter);
 // ---- Server ----
 const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://172.16.225.231:${PORT}`);
+  console.log(`Server running on http://192.168.0.119:${PORT}`);
   console.log(`Also available at http://localhost:${PORT}`);
 });

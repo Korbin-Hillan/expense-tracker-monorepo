@@ -95,12 +95,16 @@ struct RecentView: View {
                             showingDeleteConfirmation = true
                         }
                     )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 }
                 .onDelete(perform: deleteTransactions)
             }
             .navigationTitle("Recent")
             .navigationBarTitleDisplayMode(.large)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             #if os(macOS)
             .listStyle(.inset)
             #endif

@@ -14,9 +14,7 @@ struct BillCard: View {
     let onDelete: () -> Void
     @Environment(\.colorScheme) var colorScheme
     
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .white
-    }
+    // Use system adaptive colors inside material cards
     
     private var daysUntilDue: Int? {
         guard let nextDue = bill.nextDue else { return nil }
@@ -59,11 +57,11 @@ struct BillCard: View {
                         Text(bill.name)
                             .font(.headline)
                             .fontWeight(.semibold)
-                            .foregroundColor(adaptiveTextColor)
+                            .foregroundColor(.primary)
                         
                         Text(bill.category)
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.secondary)
                     }
                     
                     Spacer()
@@ -72,11 +70,11 @@ struct BillCard: View {
                         Text("$\(bill.amount, specifier: "%.2f")")
                             .font(.title2)
                             .fontWeight(.bold)
-                            .foregroundColor(adaptiveTextColor)
+                            .foregroundColor(.primary)
                         
                         Text(bill.frequency.rawValue)
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.secondary)
                     }
                 }
                 
@@ -110,11 +108,6 @@ struct BillCard: View {
             }
         }
         .padding(16)
-        .background(.white.opacity(0.1))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(.white.opacity(0.2), lineWidth: 1)
-        )
+        .cardStyle(cornerRadius: 16)
     }
 }

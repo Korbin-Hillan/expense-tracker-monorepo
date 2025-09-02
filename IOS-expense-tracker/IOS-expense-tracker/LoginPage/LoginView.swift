@@ -69,7 +69,10 @@ struct LoginView: View {
                 )
                 .ignoresSafeArea()
                 .contentShape(Rectangle()) // make the whole gradient tappable
-                .onTapGesture { focusedField = nil }
+                // Use simultaneousGesture so background taps don't block buttons on macOS
+                .simultaneousGesture(
+                    TapGesture().onEnded { focusedField = nil }
+                )
                 
                 VStack(spacing: 24) {
                     // Header
@@ -285,9 +288,6 @@ struct LoginView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        .onTapGesture {
-            focusedField = nil
-        }
     }
     
     // MARK: - Helper Functions
@@ -340,12 +340,14 @@ struct LoginView: View {
                     if let authError = error as? AuthError {
                         self.authError = authError.localizedDescription
                         print("📋 AuthError message: \(authError.localizedDescription)")
-                        
+
                         // If user not found, suggest registration
                         if case .server(let msg) = authError, msg.contains("user_not_found") {
                             self.authError = "Account not found. Please create an account first."
                             print("👤 User not found - suggesting registration")
                         }
+
+                        // For Apple/Google-only accounts, email+password isn't available
                     } else {
                         self.authError = "Login failed: \(error.localizedDescription)"
                         print("📋 Generic error message: \(error.localizedDescription)")

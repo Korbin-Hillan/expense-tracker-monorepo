@@ -24,15 +24,15 @@ I've successfully implemented a comprehensive data export feature for your expen
 ```bash
 # Export all transactions as CSV
 curl -H "Authorization: Bearer <token>" \
-  "http://172.16.225.231:3000/api/transactions/export/csv"
+  "http://192.168.0.119:3000/api/transactions/export/csv"
 
 # Export filtered data as Excel
 curl -H "Authorization: Bearer <token>" \
-  "http://172.16.225.231:3000/api/transactions/export/excel?startDate=2024-01-01&category=Food"
+  "http://192.168.0.119:3000/api/transactions/export/excel?startDate=2024-01-01&category=Food"
 
 # Get summary statistics
 curl -H "Authorization: Bearer <token>" \
-  "http://172.16.225.231:3000/api/transactions/summary?type=expense"
+  "http://192.168.0.119:3000/api/transactions/summary?type=expense"
 ```
 
 ## iOS Frontend Implementation

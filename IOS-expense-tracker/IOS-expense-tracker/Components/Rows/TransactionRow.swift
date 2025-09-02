@@ -25,20 +25,20 @@ struct TransactionRow: View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundColor(.primary.opacity(0.8))
                 .frame(width: 40, height: 40)
-                .background(.white.opacity(0.1))
+                .background(Color.primary.opacity(0.08))
                 .cornerRadius(10)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(transaction.note ?? transaction.category)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 
                 Text(transaction.category)
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.secondary)
             }
             
             Spacer()
@@ -49,8 +49,7 @@ struct TransactionRow: View {
                 .foregroundColor(amount >= 0 ? .green : .red)
         }
         .padding(16)
-        .background(.white.opacity(0.1))
-        .cornerRadius(12)
+        .cardStyle(cornerRadius: 12)
         .onTapGesture {
             // For now, tapping goes to edit
             onEdit()

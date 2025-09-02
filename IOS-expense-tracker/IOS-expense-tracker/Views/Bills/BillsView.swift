@@ -20,13 +20,7 @@ struct BillsView: View {
         billStorage.bills
     }
     
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .white
-    }
-    
-    private var adaptiveSecondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.8) : Color.white.opacity(0.9)
-    }
+    // Use adaptive system colors within material cards
     
     var body: some View {
         ScrollView {
@@ -35,11 +29,11 @@ struct BillsView: View {
                 VStack(spacing: 12) {
                     Text("Bills & Subscriptions")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                     
                     Text("Track and manage your recurring payments")
                         .font(.subheadline)
-                        .foregroundColor(adaptiveSecondaryTextColor)
+                        .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top, 20)
@@ -50,11 +44,11 @@ struct BillsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Monthly Total")
                                 .font(.subheadline)
-                                .foregroundColor(adaptiveSecondaryTextColor)
+                                .foregroundColor(.secondary)
                             
                             Text("$\(monthlyTotal, specifier: "%.2f")")
                                 .font(.system(size: 36, weight: .bold, design: .rounded))
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                         }
                         
                         Spacer()
@@ -62,7 +56,7 @@ struct BillsView: View {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text("Next Due")
                                 .font(.subheadline)
-                                .foregroundColor(adaptiveSecondaryTextColor)
+                                .foregroundColor(.secondary)
                             
                             Text(nextDueDate)
                                 .font(.headline)
@@ -79,12 +73,7 @@ struct BillsView: View {
                     }
                 }
                 .padding(24)
-                .background(.white.opacity(0.15))
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                )
+                .cardStyle(cornerRadius: 20)
                 
                 // Add Bill Button
                 Button(action: { showingAddBill = true }) {
@@ -107,7 +96,7 @@ struct BillsView: View {
                     HStack {
                         Text("Your Bills")
                             .font(.headline)
-                            .foregroundColor(adaptiveTextColor)
+                            .foregroundColor(.primary)
                         
                         Spacer()
                         
@@ -118,7 +107,7 @@ struct BillsView: View {
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 16))
-                                .foregroundColor(adaptiveSecondaryTextColor)
+                                .foregroundColor(.secondary)
                         }
                     }
                     .padding(.horizontal, 4)
@@ -127,20 +116,19 @@ struct BillsView: View {
                         VStack(spacing: 16) {
                             Image(systemName: "doc.text")
                                 .font(.system(size: 48))
-                                .foregroundColor(adaptiveSecondaryTextColor)
+                                .foregroundColor(.secondary)
                             
                             Text("No bills added yet")
                                 .font(.headline)
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                             
                             Text("Add your first recurring bill to get started")
                                 .font(.subheadline)
-                                .foregroundColor(adaptiveSecondaryTextColor)
+                                .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                         }
                         .padding(40)
-                        .background(.white.opacity(0.1))
-                        .cornerRadius(16)
+                        .cardStyle(cornerRadius: 16)
                     } else {
                         LazyVStack(spacing: 12) {
                             ForEach(bills) { bill in

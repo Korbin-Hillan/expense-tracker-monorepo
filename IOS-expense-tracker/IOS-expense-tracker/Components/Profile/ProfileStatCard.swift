@@ -23,20 +23,15 @@ struct ProfileStatCard: View {
             Text(value)
                 .font(.title3)
                 .fontWeight(.bold)
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
             
             Text(title)
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(height: 80)
         .frame(maxWidth: .infinity)
-        .background(.white.opacity(0.1))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(.white.opacity(0.2), lineWidth: 1)
-        )
+        .cardStyle(cornerRadius: 12)
     }
 }

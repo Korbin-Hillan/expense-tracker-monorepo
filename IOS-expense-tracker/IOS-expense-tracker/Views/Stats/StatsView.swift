@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct StatsView: View {
-    @StateObject private var analytics = FinancialAnalytics()
     @StateObject private var billStorage = BillStorage.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var transactions: [TransactionDTO] = []
@@ -16,14 +15,24 @@ struct StatsView: View {
     @State private var error: Error?
     @State private var showingAgentChat = false
     @State private var recurringCandidates: [RecurringCandidate] = []
+    // GPT data
+    @State private var gptLoading = false
+    @State private var gptError: String? = nil
+    @State private var gptInsights: [AIInsight] = []
+    @State private var gptNarrative: String? = nil
+    @State private var gptSavings: SavingsPlaybook? = nil
+    @State private var gptBudget: [BudgetItem] = []
+    @State private var gptSubscriptions: [SubscriptionItem] = []
+    @State private var gptDigest: String? = nil
+    @State private var gptDigestLoading = false
+    // Health & alerts
+    @State private var healthLoading = false
+    @State private var healthScore: AIClient.HealthScoreResponse? = nil
+    @State private var alerts: [AIClient.AlertItem] = []
     
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .white
-    }
-    
-    private var adaptiveSecondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.8) : Color.white.opacity(0.9)
-    }
+    // Use system adaptive colors within material cards
+    private var adaptiveTextColor: Color { .primary }
+    private var adaptiveSecondaryTextColor: Color { .secondary }
     
     var body: some View {
         ScrollView {
@@ -32,11 +41,11 @@ struct StatsView: View {
                 VStack(spacing: 12) {
                     Text("Financial Insights")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                     
                     Text("AI-powered analysis of your spending patterns")
                         .font(.subheadline)
-                        .foregroundColor(adaptiveSecondaryTextColor)
+                        .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top, 20)
@@ -46,28 +55,49 @@ struct StatsView: View {
                     quickStatsCard
                 }
                 
-                // Refresh Button
-                Button(action: refreshInsights) {
+    // Removed local insights button; using ChatGPT only
+
+                // ChatGPT Insights Button
+                Button(action: fetchGPT) {
                     HStack {
-                        if analytics.isAnalyzing {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .tint(.white)
+                        if gptLoading {
+                            ProgressView().scaleEffect(0.8).tint(.white)
                         } else {
-                            Image(systemName: "brain.head.profile")
+                            Image(systemName: "sparkles")
                                 .font(.system(size: 18))
                         }
-                        Text(analytics.isAnalyzing ? "Analyzing..." : "Generate Insights")
+                        Text(gptLoading ? "Getting ChatGPT Insights..." : "Generate ChatGPT Insights")
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(analytics.isAnalyzing ? .gray : .blue)
+                    .background(gptLoading ? .gray : .purple)
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: .purple.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .disabled(analytics.isAnalyzing || transactions.isEmpty)
+                .disabled(gptLoading || transactions.isEmpty)
+
+                // Weekly Digest
+                Button(action: fetchDigest) {
+                    HStack {
+                        if gptDigestLoading {
+                            ProgressView().scaleEffect(0.8).tint(.white)
+                        } else {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 18))
+                        }
+                        Text(gptDigestLoading ? "Generating Weekly Digest..." : "Get Weekly Digest")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(gptDigestLoading ? .gray : .indigo)
+                    .foregroundColor(.white)
+                    .cornerRadius(16)
+                    .shadow(color: .indigo.opacity(0.3), radius: 8, x: 0, y: 4)
+                }
+                .disabled(gptDigestLoading || transactions.isEmpty)
 
                 // Ask AI button (opens conversational agent)
                 Button(action: { showingAgentChat = true }) {
@@ -86,13 +116,48 @@ struct StatsView: View {
                 }
                 .disabled(transactions.isEmpty)
                 
-                // Insights List
-                if !analytics.insights.isEmpty {
-                    insightsSection
-                } else if !transactions.isEmpty && !analytics.isAnalyzing {
-                    emptyInsightsView
-                } else if transactions.isEmpty && !isLoadingTransactions {
+                // If no data, show empty state
+                if transactions.isEmpty && !isLoadingTransactions {
                     noDataView
+                }
+
+                // GPT Narrative
+                if let narrative = gptNarrative, !narrative.isEmpty {
+                    narrativeSection(narrative)
+                }
+
+                if let digest = gptDigest, !digest.isEmpty {
+                    narrativeSection(digest)
+                }
+
+                // Health Score
+                if let hs = healthScore {
+                    healthSection(hs)
+                }
+
+                // Proactive Alerts
+                if !alerts.isEmpty {
+                    alertsSection(alerts)
+                }
+
+                // GPT Insights List
+                if !gptInsights.isEmpty {
+                    gptInsightsSection
+                }
+
+                // Savings Playbook
+                if let sp = gptSavings, !sp.items.isEmpty {
+                    savingsPlaybookSection(sp)
+                }
+
+                // Budget Suggestions
+                if !gptBudget.isEmpty {
+                    budgetSection(gptBudget)
+                }
+
+                // Subscription Detective
+                if !gptSubscriptions.isEmpty {
+                    subscriptionsSection(gptSubscriptions)
                 }
 
                 // (Server Insights removed in favor of conversational agent)
@@ -112,6 +177,7 @@ struct StatsView: View {
         }
         .task {
             await loadTransactions()
+            await fetchHealthAndAlerts()
         }
         .sheet(isPresented: $showingAgentChat) {
             AgentChatView()
@@ -124,11 +190,11 @@ struct StatsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Transactions")
                         .font(.subheadline)
-                        .foregroundColor(adaptiveSecondaryTextColor)
+                        .foregroundColor(.secondary)
                     
                     Text("\(transactions.count)")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                 }
                 
                 Spacer()
@@ -136,70 +202,181 @@ struct StatsView: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("This Month")
                         .font(.subheadline)
-                        .foregroundColor(adaptiveSecondaryTextColor)
+                        .foregroundColor(.secondary)
                     
                     Text("$\(monthlySpending, specifier: "%.2f")")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                 }
             }
         }
         .padding(24)
-        .background(.white.opacity(0.15))
-        .cornerRadius(20)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(.white.opacity(0.2), lineWidth: 1)
-        )
+        .cardStyle(cornerRadius: 20)
     }
     
-    private var insightsSection: some View {
+    private var gptInsightsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Your Insights")
+                Text("ChatGPT Insights")
                     .font(.headline)
-                    .foregroundColor(adaptiveTextColor)
-                
+                    .foregroundColor(.primary)
                 Spacer()
-                
-                Text("\(analytics.insights.count)")
+                Text("\(gptInsights.count)")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.blue)
+                    .background(.purple)
                     .cornerRadius(8)
             }
             .padding(.horizontal, 4)
-            
+
             LazyVStack(spacing: 12) {
-                ForEach(analytics.insights, id: \.id) { insight in
-                    InsightCard(insight: insight)
+                ForEach(gptInsights, id: \.id) { insight in
+                    InsightCard(insight: toSpendingInsight(insight))
                 }
             }
         }
     }
-    
-    private var emptyInsightsView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lightbulb")
-                .font(.system(size: 48))
-                .foregroundColor(adaptiveSecondaryTextColor)
-            
-            Text("Tap 'Generate Insights'")
+
+    private func narrativeSection(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Forecast Narrative", systemImage: "text.append")
+                .font(.headline)
+                .foregroundColor(.primary)
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .cardStyle(cornerRadius: 12)
+    }
+
+    private func healthSection(_ hs: AIClient.HealthScoreResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Financial Health", systemImage: "heart.text.square")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Spacer()
+                Text("\(hs.score)/100")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(hs.score >= 70 ? Color.green : (hs.score >= 40 ? Color.orange : Color.red))
+                    .cornerRadius(8)
+            }
+            ForEach(hs.components, id: \.key) { c in
+                HStack {
+                    Text(c.label).foregroundColor(.primary)
+                    Spacer()
+                    Text("\(c.score)/\(c.max)").foregroundColor(.secondary)
+                }
+                .padding(8)
+                .cardStyle(cornerRadius: 8)
+            }
+            if !hs.recommendations.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Recommendations").font(.subheadline).foregroundColor(.primary)
+                    ForEach(hs.recommendations, id: \.self) { r in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "lightbulb").foregroundColor(.yellow)
+                            Text(r).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .cardStyle(cornerRadius: 12)
+    }
+
+    private func alertsSection(_ items: [AIClient.AlertItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Proactive Alerts", systemImage: "bell.badge")
+                .font(.headline)
+                .foregroundColor(.primary)
+            ForEach(items) { a in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: a.severity == "critical" ? "exclamationmark.triangle.fill" : (a.severity == "warning" ? "exclamationmark.circle" : "info.circle"))
+                        .foregroundColor(a.severity == "critical" ? .red : (a.severity == "warning" ? .orange : .blue))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(a.title).font(.subheadline).foregroundColor(.primary).fontWeight(.semibold)
+                        Text(a.body).font(.caption).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .cardStyle(cornerRadius: 10)
+            }
+        }
+    }
+
+    private func savingsPlaybookSection(_ sp: SavingsPlaybook) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Savings Playbook", systemImage: "lightbulb")
                 .font(.headline)
                 .foregroundColor(adaptiveTextColor)
-            
-            Text("AI will analyze your spending patterns and provide personalized insights")
-                .font(.subheadline)
-                .foregroundColor(adaptiveSecondaryTextColor)
-                .multilineTextAlignment(.center)
+            ForEach(Array(sp.items.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title).font(.subheadline).foregroundColor(adaptiveTextColor).fontWeight(.semibold)
+                    Text(item.description).font(.caption).foregroundColor(adaptiveSecondaryTextColor)
+                    if let impact = item.impact { Text(impact).font(.caption2).foregroundColor(.green) }
+                }
+                .padding(12)
+                .background(.white.opacity(0.1))
+                .cornerRadius(10)
+            }
         }
-        .padding(40)
-        .background(.white.opacity(0.1))
-        .cornerRadius(16)
     }
+
+    private func budgetSection(_ items: [BudgetItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Budget Coach", systemImage: "target")
+                .font(.headline)
+                .foregroundColor(adaptiveTextColor)
+            ForEach(items, id: \.category) { b in
+                HStack {
+                    Text(b.category).foregroundColor(adaptiveTextColor)
+                    Spacer()
+                    Text("$\(b.suggestedMonthly, specifier: "%.0f")/mo")
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.blue)
+                        .cornerRadius(6)
+                }
+                .padding(10)
+                .background(.white.opacity(0.1))
+                .cornerRadius(8)
+            }
+        }
+    }
+
+    private func subscriptionsSection(_ items: [SubscriptionItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Subscription Detective", systemImage: "magnifyingglass")
+                .font(.headline)
+                .foregroundColor(adaptiveTextColor)
+            ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(it.note).foregroundColor(adaptiveTextColor).font(.subheadline)
+                        if let p = it.priority { Text(p).font(.caption2).foregroundColor(.orange) }
+                    }
+                    Spacer()
+                    Text("~$\(it.monthlyEstimate, specifier: "%.0f")/mo").foregroundColor(.white)
+                }
+                .padding(10)
+                .background(.white.opacity(0.1))
+                .cornerRadius(8)
+            }
+        }
+    }
+    
+    // Removed local insights empty state
 
     // Server Insights UI removed
     
@@ -207,20 +384,19 @@ struct StatsView: View {
         VStack(spacing: 16) {
             Image(systemName: "chart.bar.doc.horizontal")
                 .font(.system(size: 48))
-                .foregroundColor(adaptiveSecondaryTextColor)
+                .foregroundColor(.secondary)
             
             Text("No transaction data")
                 .font(.headline)
-                .foregroundColor(adaptiveTextColor)
+                .foregroundColor(.primary)
             
             Text("Add some transactions to see AI-powered insights about your spending")
                 .font(.subheadline)
-                .foregroundColor(adaptiveSecondaryTextColor)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(40)
-        .background(.white.opacity(0.1))
-        .cornerRadius(16)
+        .cardStyle(cornerRadius: 16)
     }
     
     private func errorView(_ error: Error) -> some View {
@@ -231,11 +407,11 @@ struct StatsView: View {
             
             Text("Error loading data")
                 .font(.headline)
-                .foregroundColor(adaptiveTextColor)
+                .foregroundColor(.primary)
             
             Text(error.localizedDescription)
                 .font(.caption)
-                .foregroundColor(adaptiveSecondaryTextColor)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
             
             Button("Try Again") {
@@ -249,8 +425,7 @@ struct StatsView: View {
             .cornerRadius(8)
         }
         .padding(24)
-        .background(.white.opacity(0.1))
-        .cornerRadius(16)
+        .cardStyle(cornerRadius: 16)
     }
     
     private var monthlySpending: Double {
@@ -282,12 +457,73 @@ struct StatsView: View {
         isLoadingTransactions = false
     }
     
-    private func refreshInsights() {
+    // Removed local insights refresh; using GPT endpoints
+
+    private func fetchGPT() {
+        gptLoading = true
+        gptError = nil
         Task {
-            await analytics.analyzeFinancialData(
-                transactions: transactions,
-                bills: billStorage.bills
-            )
+            defer { gptLoading = false }
+            do {
+                let payload = try await AIClient().gptInsights()
+                await MainActor.run {
+                    gptInsights = payload.insights
+                    gptNarrative = payload.narrative
+                    gptSavings = payload.savings_playbook
+                    gptBudget = payload.budget ?? []
+                    gptSubscriptions = payload.subscriptions ?? []
+                }
+            } catch {
+                await MainActor.run { gptError = error.localizedDescription }
+            }
+        }
+    }
+
+    private func fetchHealthAndAlerts() async {
+        healthLoading = true
+        defer { healthLoading = false }
+        do {
+            async let hs = AIClient().healthScore()
+            async let al = AIClient().alerts()
+            let (h, a) = try await (hs, al)
+            await MainActor.run {
+                self.healthScore = h
+                self.alerts = a
+            }
+        } catch {
+            print("Failed to load health/alerts: \(error)")
+        }
+    }
+
+    // Map API AIInsight to local SpendingInsight for UI reuse
+    private func toSpendingInsight(_ api: AIInsight) -> SpendingInsight {
+        let cat: InsightCategory
+        switch api.category.lowercased() {
+        case "pattern": cat = .pattern
+        case "anomaly": cat = .anomaly
+        case "prediction": cat = .prediction
+        case "optimization": cat = .optimization
+        default: cat = .pattern
+        }
+        return SpendingInsight(
+            title: api.title,
+            description: api.description,
+            category: cat,
+            confidence: api.confidence,
+            actionable: api.actionable ?? false
+        )
+    }
+
+    private func fetchDigest() {
+        gptDigestLoading = true
+        Task {
+            defer { gptDigestLoading = false }
+            do {
+                let text = try await AIClient().weeklyDigest()
+                await MainActor.run { gptDigest = text }
+            } catch {
+                await MainActor.run { gptDigest = "Failed to generate digest: \(error.localizedDescription)" }
+            }
         }
     }
 

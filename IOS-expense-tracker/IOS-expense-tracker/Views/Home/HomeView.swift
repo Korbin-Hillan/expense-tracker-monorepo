@@ -22,22 +22,7 @@ struct HomeView: View {
     @StateObject private var billStorage = BillStorage.shared
     private let api = TransactionsAPI()
     
-    // Adaptive colors for better contrast
-    private var adaptiveTextColor: Color {
-        colorScheme == .dark ? .white : .white
-    }
-    
-    private var adaptiveSecondaryTextColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.8) : Color.white.opacity(0.9)
-    }
-    
-    private var adaptiveCardBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.white.opacity(0.15)
-    }
-    
-    private var adaptiveProgressTint: Color {
-        colorScheme == .dark ? Color.white.opacity(0.9) : .white
-    }
+    // Colors adapt automatically inside material cards
     
     private var budgetProgressColor: Color {
         let percentage = monthlyBudget > 0 ? monthlySpent / monthlyBudget : 0
@@ -73,11 +58,11 @@ struct HomeView: View {
                     Text("Welcome back!")
                         .font(.title2)
                         .fontWeight(.medium)
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                     
                     Text("Here's your financial overview")
                         .font(.subheadline)
-                        .foregroundColor(adaptiveSecondaryTextColor)
+                        .foregroundColor(.secondary)
                 }
                 .padding(.top, 20)
                 
@@ -88,7 +73,7 @@ struct HomeView: View {
                             HStack(spacing: 6) {
                                 Text("Total Balance")
                                     .font(.subheadline)
-                                    .foregroundColor(adaptiveSecondaryTextColor)
+                                    .foregroundColor(.secondary)
                                 
                                 if !billStorage.bills.isEmpty {
                                     Image(systemName: "calendar.badge.minus")
@@ -99,12 +84,12 @@ struct HomeView: View {
                             
                             Text("$\(totalBalance, specifier: "%.2f")")
                                 .font(.system(size: 36, weight: .bold, design: .rounded))
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                             
                             if !billStorage.bills.isEmpty {
                                 Text("Includes recurring bills")
                                     .font(.caption2)
-                                    .foregroundColor(adaptiveSecondaryTextColor.opacity(0.8))
+                                    .foregroundColor(.secondary)
                             }
                         }
                         
@@ -112,7 +97,7 @@ struct HomeView: View {
                         
                         Image(systemName: "dollarsign.circle.fill")
                             .font(.system(size: 40))
-                            .foregroundColor(adaptiveSecondaryTextColor)
+                            .foregroundColor(.secondary)
                     }
                     
                     // Monthly spending progress
@@ -121,7 +106,7 @@ struct HomeView: View {
                             HStack(spacing: 6) {
                                 Text("Monthly Spending")
                                     .font(.subheadline)
-                                    .foregroundColor(adaptiveSecondaryTextColor)
+                                    .foregroundColor(.secondary)
                                 
                                 Image(systemName: budgetStatusIcon)
                                     .font(.system(size: 12))
@@ -133,12 +118,12 @@ struct HomeView: View {
                             Text("$\(monthlySpent, specifier: "%.0f") / $\(monthlyBudget, specifier: "%.0f")")
                                 .font(.caption)
                                 .fontWeight(.medium)
-                                .foregroundColor(adaptiveTextColor)
+                                .foregroundColor(.primary)
                         }
                         
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(.white.opacity(0.2))
+                                .fill(Color.primary.opacity(0.1))
                                 .frame(height: 8)
                             
                             RoundedRectangle(cornerRadius: 6)
@@ -149,18 +134,13 @@ struct HomeView: View {
                     }
                 }
                 .padding(24)
-                .background(.white.opacity(0.15))
-                .cornerRadius(AppConfig.UI.cardCornerRadius)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppConfig.UI.cardCornerRadius)
-                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                )
+                .cardStyle()
                 
                 // Quick Actions
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Quick Actions")
                         .font(.headline)
-                        .foregroundColor(adaptiveTextColor)
+                        .foregroundColor(.primary)
                         .padding(.horizontal, 4)
                     
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
@@ -199,7 +179,7 @@ struct HomeView: View {
                     HStack {
                         Text("Recent Transactions")
                             .font(.headline)
-                            .foregroundColor(adaptiveTextColor)
+                            .foregroundColor(.primary)
                         
                         Spacer()
                         
@@ -207,13 +187,13 @@ struct HomeView: View {
                             NotificationCenter.default.post(name: .goToRecentTab, object: nil)
                         }
                             .font(.subheadline)
-                            .foregroundColor(adaptiveSecondaryTextColor)
+                            .foregroundColor(.secondary)
                     }
                     .padding(.horizontal, 4)
                     
                     if recent.isEmpty {
                         Text("No recent transactions yet")
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                     } else {
                         VStack(spacing: 12) {
