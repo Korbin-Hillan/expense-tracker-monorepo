@@ -223,7 +223,9 @@ function requireMapping(m: ColumnMapping) {
 importRouter.post(
   "/api/import/preview",
   (req, _res, next) => {
-    console.log("➡️ /api/import/preview PRE headers:", req.headers);
+    // Avoid logging full headers to prevent leaking Authorization
+    const { "content-type": ct, "content-length": cl } = req.headers as any;
+    console.log("➡️ /api/import/preview PRE", { contentType: ct, contentLength: cl });
     next();
   },
   requireAppJWT,

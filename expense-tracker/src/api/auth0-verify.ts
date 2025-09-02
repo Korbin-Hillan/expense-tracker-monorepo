@@ -5,7 +5,7 @@ const APPLE_ISS = "https://appleid.apple.com";
 const APPLE_JWKS = createRemoteJWKSet(
   new URL("https://appleid.apple.com/auth/keys")
 );
-const YOUR_IOS_BUNDLE_ID = "com.korbinhillan.IOS-expense-tracker";
+const YOUR_IOS_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.korbinhillan.IOS-expense-tracker";
 
 export async function verifyAppleIdToken(idToken: string) {
   const { payload } = await jwtVerify(idToken, APPLE_JWKS, {
@@ -23,6 +23,7 @@ const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs")
 );
 const GOOGLE_IOS_CLIENT_ID =
+  process.env.GOOGLE_IOS_CLIENT_ID ||
   "900568024097-fpr7jr6l41lpk89bk68skt054489jrr5.apps.googleusercontent.com";
 
 export async function verifyGoogleIdToken(idToken: string) {

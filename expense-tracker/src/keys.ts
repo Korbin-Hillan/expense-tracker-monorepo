@@ -4,12 +4,13 @@ import { createPublicKey } from "crypto";
 const PRIV_PEM = process.env.APP_JWT_PRIVATE_PEM!;
 const PUB_PEM = process.env.APP_JWT_PUBLIC_PEM!;
 const KID = process.env.APP_JWT_KID || "app-key-1";
+const ISSUER = process.env.APP_JWT_ISSUER!; // validated at startup
 
 export async function signAppJWT(payload: JWTPayload) {
   const key = await importPKCS8(PRIV_PEM, "RS256");
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: "RS256", kid: KID })
-    .setIssuer("http://192.168.0.119:3000")
+    .setIssuer(ISSUER)
     .setIssuedAt()
     .setExpirationTime("15m")
     .sign(key);

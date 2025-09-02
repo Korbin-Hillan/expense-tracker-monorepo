@@ -5,6 +5,8 @@ import { validateEnvironment } from "./utils/env-validation.ts";
 validateEnvironment();
 
 import express, { type RequestHandler } from "express";
+import cors from "cors";
+import helmet from "helmet";
 import { ObjectId } from "mongodb";
 import { transactionsRouter } from "./routes/transactions.ts";
 import { importRouter } from "./routes/import.ts";
@@ -21,12 +23,47 @@ import { ensureTransactionIndexes } from "./database/transactions.ts";
 import http from "http";
 
 const app = express();
+// Trust proxy when behind load balancers
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
+
+// Security headers
+app.use(helmet());
+
+// CORS
+const isProd = process.env.NODE_ENV === "production";
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!isProd) return cb(null, true);
+      if (!origin) return cb(null, false);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("CORS not allowed"));
+    },
+    credentials: true,
+  })
+);
 
 // Apply rate limiting
 app.use(apiRateLimit);
 app.use("/auth", authRateLimit);
 
 app.use(express.json());
+
+// Liveness/Readiness probes
+app.get("/healthz", (_req, res) => res.status(200).send("ok"));
+app.get("/readyz", async (_req, res) => {
+  try {
+    const db = await getDb();
+    await db.command({ ping: 1 });
+    res.status(200).send("ready");
+  } catch {
+    res.status(503).send("not_ready");
+  }
+});
 
 app.get("/", async (_req, res) => {
   res.send("Hello World!");
@@ -45,7 +82,7 @@ app.get("/.well-known/jwks.json", async (_req, res) => {
 });
 
 const PUB_PEM = process.env.APP_JWT_PUBLIC_PEM!;
-const APP_ISSUER = process.env.APP_JWT_ISSUER || "http://192.168.0.119:3000";
+const APP_ISSUER = process.env.APP_JWT_ISSUER!;
 
 async function verifyAppJWT(authz?: string) {
   if (!authz) throw new Error("missing_authorization");
@@ -109,7 +146,10 @@ const deleteAccountHandler: RequestHandler = async (req, res) => {
       // 3. Delete expenses
       db.collection("expenses").deleteMany({ userId }),
 
-      // 4. Finally delete the user
+      // 4. Delete recurring expenses
+      db.collection("recurringExpenses").deleteMany({ userId }),
+
+      // 5. Finally delete the user
       usersCollection(db).deleteOne({ _id: userId }),
     ];
 
@@ -119,10 +159,11 @@ const deleteAccountHandler: RequestHandler = async (req, res) => {
       refreshTokens: results[0].deletedCount,
       transactions: results[1].deletedCount,
       expenses: results[2].deletedCount,
-      user: results[3].deletedCount,
+      recurringExpenses: results[3].deletedCount,
+      user: results[4].deletedCount,
     });
 
-    if (results[3].deletedCount === 0) {
+    if (results[4].deletedCount === 0) {
       res.status(404).json({ error: "user_not_found" });
       return;
     }
@@ -134,6 +175,7 @@ const deleteAccountHandler: RequestHandler = async (req, res) => {
         refreshTokens: results[0].deletedCount,
         transactions: results[1].deletedCount,
         expenses: results[2].deletedCount,
+        recurringExpenses: results[3].deletedCount,
       },
     });
   } catch (e) {
@@ -163,6 +205,8 @@ app.use(importRouter);
 // ---- Server ----
 const PORT = Number(process.env.PORT || 3000);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://192.168.0.119:${PORT}`);
-  console.log(`Also available at http://localhost:${PORT}`);
+  console.log(`Server listening on 0.0.0.0:${PORT}`);
+  if (process.env.APP_JWT_ISSUER) {
+    console.log(`Issuer: ${process.env.APP_JWT_ISSUER}`);
+  }
 });

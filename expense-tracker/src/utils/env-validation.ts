@@ -1,24 +1,24 @@
 interface RequiredEnvVars {
-  AUTH0_DOMAIN?: string;
-  AUTH0_AUDIENCE?: string;
   APP_JWT_PUBLIC_PEM?: string;
+  APP_JWT_PRIVATE_PEM?: string;
   APP_JWT_ISSUER?: string;
   MONGODB_URI?: string;
   DB_NAME?: string;
   PORT?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 const requiredVars = [
-  'AUTH0_DOMAIN',
-  'AUTH0_AUDIENCE', 
   'APP_JWT_PUBLIC_PEM',
+  'APP_JWT_PRIVATE_PEM',
   'APP_JWT_ISSUER',
   'MONGODB_URI'
 ] as const;
 
 const optionalVars: Partial<RequiredEnvVars> = {
   DB_NAME: 'expense_tracker',
-  PORT: '3000'
+  PORT: '3000',
+  ALLOWED_ORIGINS: ''
 };
 
 export function validateEnvironment(): void {
