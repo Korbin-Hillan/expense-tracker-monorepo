@@ -27,13 +27,13 @@ struct HomeView: View {
     private var budgetProgressColor: Color {
         let percentage = monthlyBudget > 0 ? monthlySpent / monthlyBudget : 0
         if percentage >= AppConfig.Budget.dangerThreshold {
-            return .red
+            return Palette.danger
         } else if percentage >= AppConfig.Budget.alertThreshold {
-            return .orange
+            return Palette.warning
         } else if percentage >= AppConfig.Budget.warningThreshold {
-            return .yellow
+            return Palette.info
         } else {
-            return .green
+            return Palette.success
         }
     }
     
@@ -83,7 +83,11 @@ struct HomeView: View {
                             }
                             
                             Text("$\(totalBalance, specifier: "%.2f")")
-                                .font(.system(size: 36, weight: .bold, design: .rounded))
+                                .font(.system(.largeTitle, design: .rounded))
+                                .fontWeight(.bold)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                                 .foregroundColor(.primary)
                             
                             if !billStorage.bills.isEmpty {
@@ -116,7 +120,7 @@ struct HomeView: View {
                             Spacer()
                             
                             Text("$\(monthlySpent, specifier: "%.0f") / $\(monthlyBudget, specifier: "%.0f")")
-                                .font(.caption)
+                                .font(.footnote)
                                 .fontWeight(.medium)
                                 .foregroundColor(.primary)
                         }

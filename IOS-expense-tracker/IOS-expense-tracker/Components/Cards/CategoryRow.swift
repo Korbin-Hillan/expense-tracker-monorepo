@@ -42,8 +42,8 @@ struct CategoryRow: View {
             }
             
             ProgressView(value: percentage, total: 100)
-                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                .scaleEffect(x: 1, y: 1.5)
+                .tint(Palette.info)
+                .padding(.top, 2)
         }
         .padding(16)
         .cardStyle(cornerRadius: 10)

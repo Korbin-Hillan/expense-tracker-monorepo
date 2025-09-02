@@ -47,7 +47,11 @@ struct BillsView: View {
                                 .foregroundColor(.secondary)
                             
                             Text("$\(monthlyTotal, specifier: "%.2f")")
-                                .font(.system(size: 36, weight: .bold, design: .rounded))
+                                .font(.system(.largeTitle, design: .rounded))
+                                .fontWeight(.bold)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                                 .foregroundColor(.primary)
                         }
                         
@@ -85,10 +89,10 @@ struct BillsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(.blue)
+                    .background(Palette.accent(for: colorScheme))
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Palette.accent(for: colorScheme).opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 
                 // Bills List

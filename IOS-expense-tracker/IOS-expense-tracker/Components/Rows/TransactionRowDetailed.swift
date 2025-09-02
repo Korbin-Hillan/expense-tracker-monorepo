@@ -69,6 +69,7 @@ struct TransactionRowDetailed: View {
                     Text(String(format: "%@$%.2f", signed >= 0 ? "+" : "", signed))
                         .font(.headline)
                         .fontWeight(.bold)
+                        .monospacedDigit()
                         .foregroundColor(transactionColor)
                 }
                 
@@ -87,15 +88,19 @@ struct TransactionRowDetailed: View {
                     HStack(spacing: 12) {
                         Button(action: onEdit) {
                             Image(systemName: "pencil.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.blue)
+                                .font(.system(size: 22))
+                                .foregroundColor(Palette.info)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
                         
                         Button(action: onDelete) {
                             Image(systemName: "trash.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.red)
+                                .font(.system(size: 22))
+                                .foregroundColor(Palette.danger)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
                     }

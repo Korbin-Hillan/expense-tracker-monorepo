@@ -13,24 +13,19 @@ struct BillStatChip: View {
     let color: Color
     
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Text("\(count)")
-                .font(.caption)
+                .font(.footnote)
                 .fontWeight(.bold)
                 .foregroundColor(color)
-            
+                .monospacedDigit()
             Text(label)
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+                .font(.footnote)
+                .foregroundColor(.secondary)
         }
+        .frame(minHeight: 32)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.white.opacity(0.1))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(color.opacity(0.3), lineWidth: 1)
-        )
+        .cardStyle(cornerRadius: 12)
     }
 }
 

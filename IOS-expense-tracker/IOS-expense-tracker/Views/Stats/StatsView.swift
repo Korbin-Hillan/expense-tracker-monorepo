@@ -71,10 +71,10 @@ struct StatsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(gptLoading ? .gray : .purple)
+                    .background(gptLoading ? .gray : Palette.accent(for: colorScheme))
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .shadow(color: .purple.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Palette.accent(for: colorScheme).opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(gptLoading || transactions.isEmpty)
 
@@ -92,10 +92,10 @@ struct StatsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(gptDigestLoading ? .gray : .indigo)
+                    .background(gptDigestLoading ? .gray : Palette.accentSecondary(for: colorScheme))
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .shadow(color: .indigo.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Palette.accentSecondary(for: colorScheme).opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(gptDigestLoading || transactions.isEmpty)
 
@@ -109,10 +109,10 @@ struct StatsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(.purple)
+                    .background(Palette.accent(for: colorScheme))
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .shadow(color: .purple.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Palette.accent(for: colorScheme).opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(transactions.isEmpty)
                 
@@ -193,7 +193,10 @@ struct StatsView: View {
                         .foregroundColor(.secondary)
                     
                     Text("\(transactions.count)")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.title2).fontWeight(.bold)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .foregroundColor(.primary)
                 }
                 
@@ -205,7 +208,10 @@ struct StatsView: View {
                         .foregroundColor(.secondary)
                     
                     Text("$\(monthlySpending, specifier: "%.2f")")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.title2).fontWeight(.bold)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .foregroundColor(.primary)
                 }
             }

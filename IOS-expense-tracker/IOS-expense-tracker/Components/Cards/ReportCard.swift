@@ -34,6 +34,9 @@ struct ReportCard: View {
                 Text("$\(value, specifier: "%.2f")")
                     .font(.title2)
                     .fontWeight(.bold)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .foregroundColor(.primary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

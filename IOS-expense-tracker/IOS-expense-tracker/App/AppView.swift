@@ -47,41 +47,33 @@ struct AppView: View {
     }
     
     private func backgroundGradient(for screen: Screen) -> LinearGradient {
+        // Brand-driven gradients per screen, adaptive to light/dark
+        let a = Palette.accent(for: colorScheme)
+        let b = Palette.accentSecondary(for: colorScheme)
+        let success = Palette.success
+        let warn = Palette.warning
+        let info = Palette.info
+        let danger = Palette.danger
+
         let gradientColors: [Color]
-        
         switch screen {
         case .Home:
-            gradientColors = colorScheme == .dark ? [
-                Color(hex: "#1a1a2e"), Color(hex: "#16213e"), Color(hex: "#0f3460")
-            ] : [
-                Color(hex: "#667eea"), Color(hex: "#764ba2")
-            ]
+            // Primary brand look
+            gradientColors = [a, b]
         case .Stats:
-            gradientColors = colorScheme == .dark ? [
-                Color(hex: "#2d1b69"), Color(hex: "#11998e")
-            ] : [
-                Color(hex: "#f093fb"), Color(hex: "#f5576c")
-            ]
+            // Insightful cool tones
+            gradientColors = [b, info]
         case .Bills:
-            gradientColors = colorScheme == .dark ? [
-                Color(hex: "#0c4a6e"), Color(hex: "#075985")
-            ] : [
-                Color(hex: "#4facfe"), Color(hex: "#00f2fe")
-            ]
+            // Financial utilities feel
+            gradientColors = [info, a]
         case .Recent:
-            gradientColors = colorScheme == .dark ? [
-                Color(hex: "#064e3b"), Color(hex: "#047857")
-            ] : [
-                Color(hex: "#43e97b"), Color(hex: "#38f9d7")
-            ]
+            // Activity freshness
+            gradientColors = [success, b]
         case .Profile:
-            gradientColors = colorScheme == .dark ? [
-                Color(hex: "#7c2d12"), Color(hex: "#dc2626")
-            ] : [
-                Color(hex: "#fa709a"), Color(hex: "#fee140")
-            ]
+            // Warm personal area
+            gradientColors = [warn, danger]
         }
-        
+
         return LinearGradient(
             colors: gradientColors,
             startPoint: .topLeading,

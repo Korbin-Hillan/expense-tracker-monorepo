@@ -14,28 +14,38 @@ private struct NavTile: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: systemName)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                    .foregroundColor(isSelected ? .white : .white.opacity(0.7))
                 
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isSelected ? .white : .white.opacity(0.7))
                     .lineLimit(1)
             }
-            .frame(width: 60, height: 50)
+            .frame(width: 64, height: 52) // slightly larger for hit target
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? .white.opacity(0.2) : .clear)
+                    .fill(isSelected ? Palette.accent(for: colorScheme).opacity(0.16) : .clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? .white.opacity(0.3) : .clear, lineWidth: 1)
+                    .stroke(isSelected ? Palette.accent(for: colorScheme).opacity(0.3) : .clear, lineWidth: 1)
             )
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Capsule()
+                        .fill(Palette.accent(for: colorScheme))
+                        .frame(width: 28, height: 3)
+                        .offset(y: 6)
+                        .transition(.opacity.combined(with: .scale))
+                }
+            }
             .scaleEffect(isPressed ? 0.95 : 1.0)
         }
         .buttonStyle(PlainButtonStyle())
