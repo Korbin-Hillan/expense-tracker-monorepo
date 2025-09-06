@@ -26,6 +26,7 @@ export interface ImportableTransaction {
   type?: "expense" | "income";
   category?: string;
   note?: string;
+  tags?: string[];
   // AI enrichment (optional)
   merchantCanonical?: string;
   categorySuggested?: string;
@@ -439,12 +440,15 @@ export class ImportService {
       Date.UTC(Number(y), Number(mo) - 1, Number(d), 12, 0, 0)
     );
 
+    const amountCents = Math.round(transaction.amount * 100);
     return {
       userId,
       type: transaction.type || "expense",
-      amount: transaction.amount,
+      amountCents,
+      amount: amountCents / 100, // mirror for backward compatibility
       category: transaction.category || transaction.categorySuggested || "Other",
       note: transaction.merchantCanonical || transaction.note || transaction.description,
+      tags: Array.isArray(transaction.tags) ? transaction.tags.slice(0, 10) : undefined,
       merchantCanonical: transaction.merchantCanonical,
       categorySuggested: transaction.categorySuggested,
       categoryConfidence: transaction.categoryConfidence,

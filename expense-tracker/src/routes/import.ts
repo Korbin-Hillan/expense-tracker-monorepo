@@ -10,8 +10,16 @@ import { parse as csvParseSync } from "csv-parse/sync";
 import crypto from "crypto";
 import fetch from "node-fetch";
 import "dotenv/config";
+import { addImportJob, getJobStatus, maybeStartWorker } from "../queue/queue.ts";
+import type { Job } from 'bullmq';
+import { ImportService as ISvc } from "../services/importService.ts";
+import { importPresetsCollection } from "../database/importPresets.ts";
+import { rulesCollection } from "../database/rules.ts";
 
 export const importRouter = Router();
+
+// Start background worker if enabled (requires REDIS_URL and RUN_QUEUE_WORKER=true)
+ 
 
 /** ---------- helpers ---------- */
 
@@ -184,6 +192,11 @@ function sniffDelimiter(firstLine: string): string {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 }
 
+function columnsSignature(cols: string[]): string {
+  const key = cols.map(c => c.toLowerCase().trim()).sort().join('|')
+  return crypto.createHash('sha1').update(key).digest('hex')
+}
+
 /** ---------- multer ---------- */
 
 // Keep memory storage for now; consider disk storage for big files.
@@ -284,7 +297,7 @@ importRouter.post(
       const col = await transactionsCollection();
       const recent = await col
         .find({ userId: new ObjectId(userId) })
-        .project({ dedupeHash: 1, date: 1, amount: 1, note: 1 })
+        .project({ dedupeHash: 1, date: 1, amount: 1, amountCents: 1, note: 1 })
         .sort({ date: -1 })
         .limit(5000)
         .toArray();
@@ -302,11 +315,14 @@ importRouter.post(
         if (recentHashes.size) return recentHashes.has(hash);
         // fallback if no hashes yet
         return recent.some(
-          (r) =>
-            r.date.toISOString().slice(0, 10) === tx.date &&
-            Math.abs(r.amount - tx.amount) < 0.01 &&
-            (r.note ?? "").toLowerCase().trim() ===
-              tx.description.toLowerCase().trim()
+          (r) => {
+            const rAmt = (r as any).amountCents ? (r as any).amountCents/100 : (r as any).amount;
+            return (
+              r.date.toISOString().slice(0, 10) === tx.date &&
+              Math.abs(rAmt - tx.amount) < 0.01 &&
+              (r.note ?? "").toLowerCase().trim() === tx.description.toLowerCase().trim()
+            );
+          }
         );
       });
 
@@ -355,7 +371,21 @@ importRouter.post(
       const skipDuplicates = req.body.skipDuplicates === "true";
       const overwriteDuplicates = req.body.overwriteDuplicates === "true";
 
-      // Parse FULL file once
+      // Async path using queue if requested and Redis configured
+      const doAsync = String(req.query.async || req.body.async || "false").toLowerCase() === "true";
+      if (doAsync) {
+        const qid = await addImportJob({
+          userId,
+          fileBufferBase64: req.file.buffer.toString('base64'),
+          mapping,
+          kind,
+          options: { skipDuplicates, overwriteDuplicates, useAI: String(req.body.ai || req.body.useAI || "true").toLowerCase() !== "false", applyAICategory: String(req.body.applyAICategory || "false").toLowerCase() === "true" }
+        }).catch(() => undefined);
+        if (!qid) return res.status(503).json({ error: 'queue_unavailable' });
+        return res.json({ queued: true, jobId: qid });
+      }
+
+      // Parse FULL file once (inline)
       let { rows, totalRows, errors } = await ImportService.parse(
         req.file.buffer,
         { mapping, kind }
@@ -386,6 +416,29 @@ importRouter.post(
 
       const col = await transactionsCollection();
       const userObjectId = new ObjectId(userId);
+
+      // Apply user rules (category/tags) to parsed rows
+      try {
+        const rcol = await rulesCollection()
+        const rules = await rcol.find({ userId: userObjectId, enabled: true }).sort({ order: 1, createdAt: 1 }).toArray()
+        rows = rows.map((tx: any) => {
+          for (const r of rules) {
+            const fieldVal = String((tx as any)[r.when.field] || '')
+            let match = false
+            if (r.when.type === 'contains') match = fieldVal.toLowerCase().includes(r.when.value.toLowerCase())
+            else if (r.when.type === 'regex') { try { match = new RegExp(r.when.value, 'i').test(fieldVal) } catch { match = false } }
+            if (match) {
+              if (r.set.category) tx.category = r.set.category
+              if (Array.isArray(r.set.tags) && r.set.tags.length) {
+                const cur = Array.isArray(tx.tags) ? tx.tags : []
+                tx.tags = Array.from(new Set([...cur, ...r.set.tags])).slice(0, 20)
+              }
+              break
+            }
+          }
+          return tx
+        })
+      } catch {}
 
       // Build bulk upserts with stable hash
       const ops = rows.map((tx: any) => {
@@ -436,6 +489,17 @@ importRouter.post(
   }
 );
 
+// Simple job status endpoint
+importRouter.get('/api/import/job/:id', requireAppJWT, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const status = await getJobStatus(id);
+    res.json(status);
+  } catch (e) {
+    res.status(503).json({ error: 'queue_unavailable' });
+  }
+});
+
 /** ---------- /api/import/columns (POST: upload a file to inspect) ---------- */
 
 importRouter.post(
@@ -483,6 +547,14 @@ importRouter.post(
         }
       }
 
+      const sig = columnsSignature(columns)
+      // try find preset
+      let preset: any = null
+      try {
+        const userId = new ObjectId(String((req as any).userId))
+        preset = await (await importPresetsCollection()).findOne({ userId, signature: sig })
+      } catch {}
+
       return res.json({
         columns,
         sheets,
@@ -528,6 +600,8 @@ importRouter.post(
             "check number",
           ]),
         },
+        signature: sig,
+        preset: preset ? { name: preset.name, mapping: preset.mapping } : undefined,
       });
     } catch (err) {
       console.error("Column detection error:", err);
@@ -535,6 +609,29 @@ importRouter.post(
     }
   }
 );
+
+// Save an import preset
+importRouter.post('/api/import/presets', requireAppJWT, async (req, res) => {
+  try {
+    const userId = new ObjectId(String((req as any).userId))
+    const { name, signature, mapping } = req.body ?? {}
+    if (!name || !signature || !mapping) { res.status(400).json({ error: 'invalid_payload' }); return }
+    const col = await importPresetsCollection()
+    const now = new Date()
+    const existing = await col.findOne({ userId, signature })
+    if (existing) {
+      await col.updateOne({ _id: existing._id }, { $set: { name, mapping, updatedAt: now } })
+      const saved = await col.findOne({ _id: existing._id })
+      res.json({ preset: { name: saved!.name, signature: saved!.signature, mapping: saved!.mapping } })
+    } else {
+      const r = await col.insertOne({ userId, name, signature, mapping, createdAt: now, updatedAt: now } as any)
+      const saved = await col.findOne({ _id: r.insertedId })
+      res.status(201).json({ preset: { name: saved!.name, signature: saved!.signature, mapping: saved!.mapping } })
+    }
+  } catch (e) {
+    res.status(500).json({ error: 'save_preset_failed' })
+  }
+})
 
 /** ---------- helpers ---------- */
 

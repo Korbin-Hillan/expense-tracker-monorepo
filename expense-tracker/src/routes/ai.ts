@@ -4,6 +4,11 @@ import { requireAppJWT } from "../middleware/auth.ts";
 import { transactionsCollection } from "../database/transactions.ts";
 import fetch from "node-fetch";
 import "dotenv/config";
+import { getDb, usersCollection } from "../database/databaseConnection.js";
+import { budgetsCollection } from "../database/budgets.js";
+import { subscriptionPrefsCollection } from "../database/subscriptionPrefs.js";
+import { alertPrefsCollection } from "../database/alertPrefs.js";
+import { toISODateInTZ } from "../utils/time.ts";
 
 export const aiRouter = Router();
 
@@ -24,6 +29,11 @@ type AIInsight = {
 
 function toISODateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
+}
+
+// Normalize amount from document (supports legacy float or new integer cents)
+function toAmt(t: any): number {
+  return typeof t?.amountCents === 'number' ? t.amountCents / 100 : (t?.amount || 0);
 }
 
 // --- OpenAI helpers ---
@@ -47,7 +57,6 @@ async function openaiChatJSON(systemPrompt: string, userPrompt: string) {
         { role: "user", content: userPrompt },
       ],
       response_format: { type: "json_object" },
-      temperature: 0.3,
     }),
   });
   if (!resp.ok) {
@@ -73,7 +82,6 @@ async function openaiChatText(systemPrompt: string, userPrompt: string) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.2,
     }),
   });
   if (!resp.ok) {
@@ -98,7 +106,6 @@ async function openaiChatStream(systemPrompt: string, userPrompt: string) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.2,
       stream: true,
     }),
   });
@@ -118,6 +125,16 @@ type Aggregates = {
   subs: Array<{ note: string; count: number; avg: number; monthlyEstimate: number; frequency: string }>;
 };
 
+async function getUserTimeZone(userId: ObjectId): Promise<string> {
+  try {
+    const db = await getDb();
+    const u = await usersCollection(db).findOne({ _id: userId });
+    return (u as any)?.timezone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 async function computeAggregates(userId: string): Promise<Aggregates> {
   const col = await transactionsCollection();
   const since = new Date();
@@ -128,37 +145,38 @@ async function computeAggregates(userId: string): Promise<Aggregates> {
     .sort({ date: -1 })
     .limit(5000)
     .toArray();
+  const tz = await getUserTimeZone(new ObjectId(userId));
 
   const expenses = txs.filter((t) => t.type === "expense");
   const income = txs.filter((t) => t.type === "income");
-  const expenseSum = expenses.reduce((a, b) => a + (b.amount || 0), 0);
-  const incomeSum = income.reduce((a, b) => a + (b.amount || 0), 0);
+  const expenseSum = expenses.reduce((a, b) => a + toAmt(b), 0);
+  const incomeSum = income.reduce((a, b) => a + toAmt(b), 0);
   const net = incomeSum - expenseSum;
 
   const catMap = new Map<string, number>();
-  for (const t of expenses) catMap.set(t.category, (catMap.get(t.category) ?? 0) + t.amount);
+  for (const t of expenses) catMap.set(t.category, (catMap.get(t.category) ?? 0) + toAmt(t));
   const categories = [...catMap.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total).slice(0, 15);
 
   const merchantMap = new Map<string, { total: number; count: number }>();
   for (const t of expenses) {
     const key = (t.merchantCanonical || t.note || "").toLowerCase().trim() || t.category;
     const val = merchantMap.get(key) || { total: 0, count: 0 };
-    val.total += t.amount; val.count += 1; merchantMap.set(key, val);
+    val.total += toAmt(t); val.count += 1; merchantMap.set(key, val);
   }
   const topMerchants = [...merchantMap.entries()].map(([merchant, v]) => ({ merchant, total: v.total, count: v.count }))
     .sort((a, b) => b.total - a.total).slice(0, 10);
 
   // Outliers (z-score > 2)
-  const amounts = expenses.map((t) => t.amount);
+  const amounts = expenses.map((t) => toAmt(t));
   const mean = amounts.reduce((a, b) => a + b, 0) / Math.max(1, amounts.length);
   const variance = amounts.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / Math.max(1, amounts.length);
   const std = Math.sqrt(variance);
   const threshold = mean + 2 * std;
   const outliers = expenses
-    .filter((t) => t.amount > threshold)
-    .sort((a, b) => b.amount - a.amount)
+    .filter((t) => toAmt(t) > threshold)
+    .sort((a, b) => toAmt(b) - toAmt(a))
     .slice(0, 10)
-    .map((t) => ({ date: toISODateOnly(t.date), category: t.category, amount: t.amount, note: (t.note || undefined) }));
+    .map((t) => ({ date: toISODateInTZ(t.date, tz), category: t.category, amount: toAmt(t), note: (t.note || undefined) }));
 
   // Subscriptions: repeating normalized notes with strict filtering to avoid groceries/etc.
   const byNote = new Map<string, { sum: number; count: number; dates: Date[]; categories: Map<string, number> }>();
@@ -166,7 +184,7 @@ async function computeAggregates(userId: string): Promise<Aggregates> {
     const k = (t.note || "").toLowerCase().trim();
     if (!k) continue;
     const v = byNote.get(k) || { sum: 0, count: 0, dates: [], categories: new Map() };
-    v.sum += t.amount; v.count += 1; v.dates.push(t.date);
+    v.sum += toAmt(t); v.count += 1; v.dates.push(t.date);
     v.categories.set(t.category, (v.categories.get(t.category) ?? 0) + 1);
     byNote.set(k, v);
   }
@@ -205,7 +223,7 @@ async function computeAggregates(userId: string): Promise<Aggregates> {
     return false;
   }
 
-  const subs = [...byNote.entries()]
+  const subsRaw = [...byNote.entries()]
     .map(([note, v]) => {
       const s = [...v.dates].sort((a, b) => a.getTime() - b.getTime());
       const gaps = zipDiffDays(s);
@@ -213,12 +231,22 @@ async function computeAggregates(userId: string): Promise<Aggregates> {
       const freq = gapToFreqLabel(med);
       const factor = freqToMonthlyFactor(freq);
       const avg = v.sum / Math.max(1, v.count);
-      return { note, count: v.count, avg, monthlyEstimate: avg * factor, frequency: freq, cats: v.categories };
+      // Next due ~ last seen + median gap
+      const last = s[s.length - 1];
+      const nextDueDate = new Date(last.getTime() + Math.round(med || 30) * 86400000);
+      return { note, count: v.count, avg, monthlyEstimate: avg * factor, frequency: freq, cats: v.categories, nextDue: toISODateOnly(nextDueDate) };
     })
     .filter((x) => x.count >= 3 && looksLikeSubscription(x.note, x.cats))
     .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate)
-    .slice(0, 10)
-    .map((x) => ({ note: x.note, count: x.count, avg: x.avg, monthlyEstimate: x.monthlyEstimate, frequency: x.frequency }));
+    .slice(0, 10);
+
+  // Apply user subscription preferences (ignored/cancelled)
+  const prefsCol = await subscriptionPrefsCollection();
+  const prefs = await prefsCol.find({ userId: new ObjectId(userId) }).toArray();
+  const ignored = new Set(prefs.filter(p => p.ignored || p.cancelled).map(p => p.noteNorm));
+  const subs = subsRaw
+    .filter(x => !ignored.has(String(x.note).toLowerCase().trim()))
+    .map(x => ({ note: x.note, count: x.count, avg: x.avg, monthlyEstimate: x.monthlyEstimate, frequency: x.frequency, nextDue: x.nextDue }));
 
   return {
     timeframe: { from: toISODateOnly(since), to: toISODateOnly(now), months: 12 },
@@ -226,9 +254,21 @@ async function computeAggregates(userId: string): Promise<Aggregates> {
     categories,
     topMerchants,
     outliers,
-    subs,
+  subs,
   };
 }
+
+// Expose subscriptions (recurring charges) summary
+aiRouter.get('/api/ai/subscriptions', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const aggs = await computeAggregates(userId);
+    res.json({ subs: aggs.subs });
+  } catch (e) {
+    console.error('/api/ai/subscriptions error', e);
+    res.status(500).json({ error: 'failed_to_compute_subscriptions' });
+  }
+});
 
 // ---- Health score (0..100) computed from aggregates and short-term volatility ----
 function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
@@ -252,7 +292,7 @@ async function computeHealthScore(userId: string) {
     const onejan = new Date(Date.UTC(yr,0,1));
     const week = Math.ceil((((d.getTime()-onejan.getTime())/86400000)+onejan.getUTCDay()+1)/7);
     const key = `${yr}-${String(week).padStart(2,'0')}`;
-    weeks.set(key, (weeks.get(key) ?? 0) + (t.amount || 0));
+    weeks.set(key, (weeks.get(key) ?? 0) + toAmt(t));
   }
   const weekly = [...weeks.values()];
   const wMean = weekly.length ? weekly.reduce((a,b)=>a+b,0)/weekly.length : 0;
@@ -289,7 +329,7 @@ async function computeHealthScore(userId: string) {
 }
 
 // ---- Proactive alerts (computed on demand) ----
-type Alert = { id: string; title: string; body: string; severity: "info"|"warning"|"critical" };
+type Alert = { id: string; title: string; body: string; severity: "info"|"warning"|"critical"; key?: string };
 async function computeAlerts(userId: string): Promise<Alert[]> {
   const col = await transactionsCollection();
   const now = new Date();
@@ -297,17 +337,20 @@ async function computeAlerts(userId: string): Promise<Alert[]> {
   const txs = await col.find({ userId: new ObjectId(userId), date: { $gte: since } }).toArray();
   const expenses = txs.filter(t=>t.type==="expense");
   const alerts: Alert[] = [];
+  const prefs = await (await alertPrefsCollection()).find({ userId: new ObjectId(userId) }).toArray();
+  const muted = new Set(prefs.filter(p=>p.muted).map(p=>p.key));
 
   // 1) Overspend this week vs last 4 weeks avg
   const dayMs = 86400000;
   const last7 = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs <= 7);
   const prev28 = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs > 7 && (now.getTime()-new Date(t.date).getTime())/dayMs <= 35);
-  const sum = (arr:any[])=> arr.reduce((a,b)=>a+(b.amount||0),0);
+  const sum = (arr:any[])=> arr.reduce((a,b)=>a+(((b as any).amountCents ? (b as any).amountCents/100 : (b as any).amount) || 0),0);
   const w = sum(last7);
   const prevAvg = prev28.length ? (sum(prev28)/4) : 0;
   if (prevAvg>0 && w > prevAvg*1.2 && w > 100) {
     const pct = Math.round((w/prevAvg - 1)*100);
-    alerts.push({ id: cryptoRandomId(), title: "This week trending high", body: `Spending is ${pct}% above your recent weekly average. Consider pausing a few discretionary purchases.`, severity: pct>40?"critical":"warning" });
+    const a: Alert = { id: cryptoRandomId(), title: "This week trending high", body: `Spending is ${pct}% above your recent weekly average. Consider pausing a few discretionary purchases.`, severity: pct>40?"critical":"warning", key: 'overspend:weekly' };
+    if (!muted.has(a.key!)) alerts.push(a);
   }
 
   // 2) Category spike this month vs last month
@@ -316,7 +359,7 @@ async function computeAlerts(userId: string): Promise<Alert[]> {
   const lastMonthKey = lastMonth.toISOString().slice(0,7);
   const byCat = (arr:any[])=> {
     const m = new Map<string,number>();
-    for (const t of arr) m.set(t.category, (m.get(t.category)||0)+t.amount);
+    for (const t of arr) m.set(t.category, (m.get(t.category)||0)+toAmt(t));
     return m;
   };
   const thisMonth = expenses.filter(t=> toISODateOnly(t.date).startsWith(ym));
@@ -325,19 +368,21 @@ async function computeAlerts(userId: string): Promise<Alert[]> {
   for (const [cat, amt] of m1) {
     const base = m0.get(cat)||0; if (amt>100 && base>0 && amt>base*1.3) {
       const pct = Math.round((amt/base - 1)*100);
-      alerts.push({ id: cryptoRandomId(), title: `${cat} up ${pct}%`, body: `You're spending more on ${cat} this month ($${amt.toFixed(0)} vs $${base.toFixed(0)} last month).`, severity: pct>60?"warning":"info" });
+      const a: Alert = { id: cryptoRandomId(), title: `${cat} up ${pct}%`, body: `You're spending more on ${cat} this month ($${amt.toFixed(0)} vs $${base.toFixed(0)} last month).`, severity: pct>60?"warning":"info", key: `category_spike:${cat}` };
+      if (!muted.has(a.key!)) alerts.push(a);
     }
   }
 
   // 3) Large transaction alert in last 7 days
   const last7Tx = expenses.filter(t=> (now.getTime()-new Date(t.date).getTime())/dayMs <= 7);
-  const amounts = expenses.map(t=>t.amount);
+  const amounts = expenses.map(t=>toAmt(t));
   const mean = amounts.length? amounts.reduce((a,b)=>a+b,0)/amounts.length: 0;
   const variance = amounts.length? amounts.reduce((acc,x)=>acc+Math.pow(x-mean,2),0)/amounts.length: 0;
   const std = Math.sqrt(variance);
   for (const t of last7Tx) {
-    if (t.amount >= Math.max(300, mean + 2.5*std)) {
-      alerts.push({ id: cryptoRandomId(), title: "Large purchase", body: `${toISODateOnly(t.date)} • ${t.category}${t.note?" • "+t.note:""}: $${t.amount.toFixed(2)}`, severity: "info" });
+    if (toAmt(t) >= Math.max(300, mean + 2.5*std)) {
+      const a: Alert = { id: cryptoRandomId(), title: "Large purchase", body: `${toISODateOnly(t.date)} • ${t.category}${t.note?" • "+t.note:""}: $${toAmt(t).toFixed(2)}`, severity: "info", key: 'large_purchase' };
+      if (!muted.has(a.key!)) alerts.push(a);
     }
   }
 
@@ -346,8 +391,40 @@ async function computeAlerts(userId: string): Promise<Alert[]> {
   const subsMonthly = aggs.subs.reduce((a,b)=>a+(b.monthlyEstimate||0),0);
   const monthlySpend = aggs.totals.expense/12;
   if (subsMonthly > 0 && monthlySpend>0 && subsMonthly/monthlySpend > 0.25) {
-    alerts.push({ id: cryptoRandomId(), title: "Subscriptions heavy", body: `Estimated subscriptions ~$${subsMonthly.toFixed(0)}/mo may exceed 25% of monthly spending. Review to save.`, severity: "info" });
+    const a: Alert = { id: cryptoRandomId(), title: "Subscriptions heavy", body: `Estimated subscriptions ~$${subsMonthly.toFixed(0)}/mo may exceed 25% of monthly spending. Review to save.`, severity: "info", key: 'subscriptions:heavy' };
+    if (!muted.has(a.key!)) alerts.push(a);
   }
+
+  // Budget threshold alerts (current month)
+  try {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth()+1, 0, 23,59,59,999);
+    const txCol = await transactionsCollection();
+    const monthTxs = await txCol.find({ userId: new ObjectId(userId), type: 'expense', date: { $gte: start, $lte: end } }).toArray();
+    const spentByCat = new Map<string, number>();
+    for (const t of monthTxs) {
+      const amt = toAmt(t);
+      spentByCat.set(t.category, (spentByCat.get(t.category) ?? 0) + amt);
+      spentByCat.set('Overall', (spentByCat.get('Overall') ?? 0) + amt);
+    }
+    const bcol = await budgetsCollection();
+    const budgets = await bcol.find({ userId: new ObjectId(userId) }).toArray();
+    for (const b of budgets) {
+      const monthly = (b as any).monthlyCents ? (b as any).monthlyCents/100 : 0;
+      if (monthly <= 0) continue;
+      const spent = spentByCat.get(b.category) ?? 0;
+      const pct = spent / monthly;
+      let level: 'warn'|'danger'|null = null;
+      if (pct >= 1) level = 'danger'; else if (pct >= 0.8) level = 'warn';
+      if (level) {
+        const key = `budget:${b.category}`;
+        if (!muted.has(key)) {
+          alerts.push({ id: cryptoRandomId(), title: `Budget ${level === 'danger' ? 'exceeded' : 'warning'}: ${b.category}`,
+            body: `$${spent.toFixed(2)} of $${monthly.toFixed(2)} spent this month (${Math.round(pct*100)}%).`, severity: level==='danger'? 'critical':'warning', key });
+        }
+      }
+    }
+  } catch {}
 
   return alerts.slice(0, 8);
 }
@@ -370,7 +447,7 @@ aiRouter.get("/api/ai/insights", requireAppJWT, async (req, res) => {
     // 1) Top spending category (expenses only)
     const expenses = txs.filter((t) => t.type === "expense");
     const catTotals = new Map<string, number>();
-    for (const t of expenses) catTotals.set(t.category, (catTotals.get(t.category) ?? 0) + t.amount);
+    for (const t of expenses) catTotals.set(t.category, (catTotals.get(t.category) ?? 0) + toAmt(t));
     if (catTotals.size) {
       let top: [string, number] | undefined;
       for (const [k, v] of catTotals) if (!top || v > top[1]) top = [k, v];
@@ -395,7 +472,7 @@ aiRouter.get("/api/ai/insights", requireAppJWT, async (req, res) => {
       const currentDay = now.getDate();
       const ym = now.toISOString().slice(0, 7); // yyyy-mm
       const monthExpenses = expenses.filter((t) => toISODateOnly(t.date).startsWith(ym));
-      const spent = monthExpenses.reduce((a, b) => a + b.amount, 0);
+      const spent = monthExpenses.reduce((a, b) => a + toAmt(b), 0);
       const dailyAvg = currentDay > 0 ? spent / currentDay : 0;
       const projected = dailyAvg * daysInMonth;
       insights.push({
@@ -410,12 +487,12 @@ aiRouter.get("/api/ai/insights", requireAppJWT, async (req, res) => {
 
     // 3) Amount anomalies (z-score > ~2)
     if (expenses.length >= 8) {
-      const amounts = expenses.map((t) => t.amount);
+      const amounts = expenses.map((t) => toAmt(t));
       const mean = amounts.reduce((a, b) => a + b, 0) / amounts.length;
       const variance = amounts.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / amounts.length;
       const std = Math.sqrt(variance);
       const threshold = mean + 2 * std;
-      const outliers = expenses.filter((t) => t.amount > threshold).slice(0, 5);
+      const outliers = expenses.filter((t) => toAmt(t) > threshold).slice(0, 5);
       const outlierIds = outliers
         .map((t) => t._id)
         .filter(Boolean)
@@ -424,7 +501,7 @@ aiRouter.get("/api/ai/insights", requireAppJWT, async (req, res) => {
         insights.push({
           id: cryptoRandomId(),
           title: "Unusual Transaction",
-          description: `$${t.amount.toFixed(2)} in ${t.category} looks high compared to your typical spend. Review if expected.`,
+          description: `$${toAmt(t).toFixed(2)} in ${t.category} looks high compared to your typical spend. Review if expected.`,
           category: "anomaly",
           confidence: 0.7,
           actionable: false,
@@ -801,9 +878,9 @@ function answerPrompt(prompt: string, txs: any[]): string {
   if (wantsListLargest) {
     const largest = filtered
       .filter((t) => t.type === "expense")
-      .sort((a, b) => b.amount - a.amount)
+      .sort((a, b) => (b.amountCents ? b.amountCents/100 : b.amount) - (a.amountCents ? a.amountCents/100 : a.amount))
       .slice(0, 5)
-      .map((t) => `- ${toDate(t.date)} • ${t.category}${t.note ? " • " + t.note : ""}: $${t.amount.toFixed(2)}`)
+      .map((t) => `- ${toDate(t.date)} • ${t.category}${t.note ? " • " + t.note : ""}: $${((t as any).amountCents ? (t as any).amountCents/100 : (t as any).amount).toFixed(2)}`)
       .join("\n");
     return header(`Largest expenses ${label}`) + (largest || "No expenses found.");
   }
@@ -871,7 +948,8 @@ function savingsAdvice(txs: any[], label: string): string {
   if (spikes.length) {
     lines.push("Watch for unusual spikes:");
     for (const t of spikes) {
-      lines.push(`- ${toDate(t.date)} • ${t.category}${t.note ? " • " + t.note : ""}: $${t.amount.toFixed(2)}`);
+      const amt = (t as any).amountCents ? (t as any).amountCents/100 : (t as any).amount;
+      lines.push(`- ${toDate(t.date)} • ${t.category}${t.note ? " • " + t.note : ""}: $${amt.toFixed(2)}`);
     }
   }
 
@@ -900,7 +978,7 @@ function findRepeatingNotes(expenses: any[]) {
     const medianGap = median(gapsDays);
     const freq = gapToFreqLabel(medianGap);
     const factor = freqToMonthlyFactor(freq);
-    const avg = items.reduce((a, b) => a + b.amount, 0) / items.length;
+    const avg = items.reduce((a, b) => a + (((b as any).amountCents ? (b as any).amountCents/100 : (b as any).amount) || 0), 0) / items.length;
     const monthly = avg * factor;
     res.push({ note, count: items.length, avg, frequency: freq, monthlyEstimate: monthly });
   }
@@ -911,7 +989,10 @@ function findRepeatingNotes(expenses: any[]) {
 function findFrequentSmalls(expenses: any[]) {
   // candidates in $3..$20 with >=5 occurrences
   const isoNotes = expenses
-    .filter((t) => t.amount >= 3 && t.amount <= 20)
+    .filter((t) => {
+      const amt = (t as any).amountCents ? (t as any).amountCents/100 : (t as any).amount;
+      return amt >= 3 && amt <= 20;
+    })
     .map((t) => ({ ...t, _note: String(t.note ?? "").toLowerCase().trim() }))
     .filter((t) => t._note.length > 0);
   const byNote = new Map<string, any[]>();
@@ -919,19 +1000,20 @@ function findFrequentSmalls(expenses: any[]) {
   const res: { note: string; count: number; avg: number }[] = [];
   for (const [note, items] of byNote) {
     if (items.length < 5) continue;
-    const avg = items.reduce((a, b) => a + b.amount, 0) / items.length;
+    const avg = items.reduce((a, b) => a + (((b as any).amountCents ? (b as any).amountCents/100 : (b as any).amount) || 0), 0) / items.length;
     res.push({ note, count: items.length, avg });
   }
   return res.sort((a, b) => b.count - a.count);
 }
 
 function findAmountOutliers(expenses: any[]) {
-  const amounts = expenses.map((t) => t.amount);
+  const amounts = expenses.map((t) => ((t as any).amountCents ? (t as any).amountCents/100 : (t as any).amount));
   const mean = amounts.reduce((a, b) => a + b, 0) / Math.max(1, amounts.length);
   const variance = amounts.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0) / Math.max(1, amounts.length);
   const std = Math.sqrt(variance);
   const threshold = mean + 2 * std;
-  return expenses.filter((t) => t.amount > threshold).sort((a, b) => b.amount - a.amount);
+  return expenses.filter((t) => (((t as any).amountCents ? (t as any).amountCents/100 : (t as any).amount)) > threshold)
+    .sort((a, b) => ((((b as any).amountCents ? (b as any).amountCents/100 : (b as any).amount)) - (((a as any).amountCents ? (a as any).amountCents/100 : (a as any).amount))));
 }
 
 function zipDiffDays(dates: Date[]): number[] {
@@ -1034,11 +1116,11 @@ function detectCategory(prompt: string, categories: Set<string>): string | undef
 
 function aggregateByCategory(txs: any[]): [string, number][] {
   const map = new Map<string, number>();
-  for (const t of txs) map.set(t.category, (map.get(t.category) ?? 0) + t.amount);
+  for (const t of txs) map.set(t.category, (map.get(t.category) ?? 0) + toAmt(t));
   return [...map.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-function sum(txs: any[]): number { return txs.reduce((a, b) => a + (b.amount || 0), 0); }
+function sum(txs: any[]): number { return txs.reduce((a, b) => a + (((b as any).amountCents ? (b as any).amountCents/100 : (b as any).amount) || 0), 0); }
 function header(title: string) { return `"${title}"\n\n`; }
 function toDate(d: Date) { return new Date(d).toISOString().slice(0,10); }
 
@@ -1046,3 +1128,216 @@ function cryptoRandomId() {
   // quick id without importing node:crypto types here
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
+// Subscriptions endpoints
+aiRouter.get('/api/ai/subscriptions', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const aggs = await computeAggregates(userId);
+    res.json({ subs: aggs.subs });
+  } catch (e) {
+    console.error('/api/ai/subscriptions error', e);
+    res.status(500).json({ error: 'failed_to_compute_subscriptions' });
+  }
+});
+
+aiRouter.post('/api/ai/subscriptions/prefs', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = new ObjectId(String((req as any).userId));
+    const note = String(req.body?.note || '').toLowerCase().trim();
+    if (!note) { res.status(400).json({ error: 'note_required' }); return; }
+    const ignore = Boolean(req.body?.ignore);
+    const cancel = Boolean(req.body?.cancel);
+    const col = await subscriptionPrefsCollection();
+    await col.updateOne(
+      { userId, noteNorm: note },
+      { $set: { ignored: ignore || undefined, cancelled: cancel || undefined, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date(), userId, noteNorm: note } },
+      { upsert: true }
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('/api/ai/subscriptions/prefs error', e);
+    res.status(500).json({ error: 'failed_to_update_prefs' });
+  }
+});
+
+aiRouter.get('/api/ai/subscriptions/export.csv', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = (req as any).userId as string;
+    const aggs = await computeAggregates(userId);
+    const rows = aggs.subs;
+    const header = 'Note,Count,Avg,MonthlyEstimate,Frequency,NextDue\n';
+    const csv = header + rows.map(r => [
+      JSON.stringify(r.note),
+      r.count,
+      r.avg.toFixed(2),
+      r.monthlyEstimate.toFixed(2),
+      r.frequency,
+      (r as any).nextDue || ''
+    ].join(',')).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="subscriptions.csv"');
+    res.send(csv);
+  } catch (e) {
+    console.error('/api/ai/subscriptions/export.csv error', e);
+    res.status(500).json({ error: 'failed_to_export' });
+  }
+});
+
+// --- Anomaly alerts per category ---
+aiRouter.get('/api/ai/anomalies', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = new ObjectId(String((req as any).userId))
+    const col = await transactionsCollection()
+    const since = new Date(); since.setDate(since.getDate() - 60)
+    const txs = await col.find({ userId, type: 'expense', date: { $gte: since } }).toArray()
+    const byCat = new Map<string, number[]>()
+    for (const t of txs) {
+      const arr = byCat.get(t.category) || []
+      arr.push(toAmt(t))
+      byCat.set(t.category, arr)
+    }
+    const anomalies: any[] = []
+    for (const [cat, arr] of byCat) {
+      if (arr.length < 6) continue
+      const mean = arr.reduce((a,b)=>a+b,0)/arr.length
+      const std = Math.sqrt(arr.reduce((acc,x)=>acc+Math.pow(x-mean,2),0)/arr.length)
+      const threshold = mean + 2.5*std
+      for (const t of txs.filter(x=>x.category===cat)) {
+        const amt = toAmt(t)
+        if (amt > threshold && amt > 0) {
+          anomalies.push({ id: String(t._id), date: t.date, category: cat, amount: amt, z: std ? (amt-mean)/std : 0, note: t.note || undefined })
+        }
+      }
+    }
+    anomalies.sort((a,b)=>b.amount-a.amount)
+    res.json({ anomalies })
+  } catch (e) { res.status(500).json({ error: 'anomalies_failed' }) }
+})
+
+// --- Forecast 30/60/90 ---
+aiRouter.get('/api/ai/forecast', requireAppJWT as any, async (req, res) => {
+  try {
+    const userId = new ObjectId(String((req as any).userId))
+    const col = await transactionsCollection()
+    const since = new Date(); since.setMonth(since.getMonth()-18)
+    const txs = await col.find({ userId, date: { $gte: since } }).toArray()
+    const byMonth = new Map<string, { income: number; expense: number }>()
+    const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`
+    for (const t of txs) {
+      const k = key(new Date(t.date))
+      const rec = byMonth.get(k) || { income: 0, expense: 0 }
+      if (t.type==='income') rec.income += toAmt(t); else rec.expense += toAmt(t)
+      byMonth.set(k, rec)
+    }
+    const months = [...byMonth.entries()].sort(([a],[b])=>a.localeCompare(b))
+    const season = new Map<number, { income: number[]; expense: number[] }>()
+    for (const [k, v] of months) {
+      const m = Number(k.slice(5,7)) - 1
+      const s = season.get(m) || { income: [], expense: [] }
+      s.income.push(v.income); s.expense.push(v.expense)
+      season.set(m, s)
+    }
+    const avg = (a: number[]) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0
+    const monthForecast = (date: Date) => {
+      const m = date.getUTCMonth()
+      const s = season.get(m) || { income: [], expense: [] }
+      const income = avg(s.income) || avg(months.slice(-6).map(([,v])=>v.income))
+      const expense = avg(s.expense) || avg(months.slice(-6).map(([,v])=>v.expense))
+      return { income, expense, net: income - expense }
+    }
+    const now = new Date()
+    const days30 = monthForecast(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+1, 1)))
+    const days60 = monthForecast(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+2, 1)))
+    const days90 = monthForecast(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+3, 1)))
+    res.json({ days30, days60, days90 })
+  } catch (e) { res.status(500).json({ error: 'forecast_failed' }) }
+})
+
+// --- Goals CRUD ---
+aiRouter.get('/api/ai/goals', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId));
+    const goals = await db.collection('goals').find({ userId }).toArray();
+    res.json({ goals })
+  } catch (e) { res.status(500).json({ error: 'goals_list_failed' }) }
+})
+
+aiRouter.post('/api/ai/goals', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId));
+    const { name, targetAmount, monthlyTarget, dueDate } = req.body ?? {}
+    if (!name || (!targetAmount && !monthlyTarget)) { res.status(400).json({ error: 'invalid_goal' }); return }
+    const doc = { userId, name: String(name), targetAmount: targetAmount ? Number(targetAmount) : undefined, monthlyTarget: monthlyTarget ? Number(monthlyTarget) : undefined, dueDate: dueDate ? new Date(dueDate) : undefined, createdAt: new Date(), updatedAt: new Date() }
+    const r = await db.collection('goals').insertOne(doc)
+    res.status(201).json({ goal: await db.collection('goals').findOne({ _id: r.insertedId }) })
+  } catch (e) { res.status(500).json({ error: 'goals_create_failed' }) }
+})
+
+aiRouter.put('/api/ai/goals/:id', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId)); const id = String(req.params.id)
+    if (!ObjectId.isValid(id)) { res.status(400).json({ error: 'bad_id' }); return }
+    const { name, targetAmount, monthlyTarget, dueDate } = req.body ?? {}
+    await db.collection('goals').updateOne({ _id: new ObjectId(id), userId }, { $set: { name, targetAmount, monthlyTarget, dueDate: dueDate ? new Date(dueDate) : undefined, updatedAt: new Date() } })
+    res.json({ goal: await db.collection('goals').findOne({ _id: new ObjectId(id), userId }) })
+  } catch (e) { res.status(500).json({ error: 'goals_update_failed' }) }
+})
+
+aiRouter.delete('/api/ai/goals/:id', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId)); const id = String(req.params.id)
+    if (!ObjectId.isValid(id)) { res.status(400).json({ error: 'bad_id' }); return }
+    await db.collection('goals').deleteOne({ _id: new ObjectId(id), userId })
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: 'goals_delete_failed' }) }
+})
+
+// --- Merchant map ---
+aiRouter.get('/api/ai/merchants', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId));
+    const maps = await db.collection('merchant_map').find({ userId }).toArray();
+    res.json({ maps })
+  } catch (e) { res.status(500).json({ error: 'merchants_list_failed' }) }
+})
+
+aiRouter.post('/api/ai/merchants', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId));
+    const { pattern, merchant, confidence, approved } = req.body ?? {}
+    if (!pattern || !merchant) { res.status(400).json({ error: 'invalid_payload' }); return }
+    const doc = { userId, pattern: String(pattern), merchant: String(merchant), confidence: Math.max(0, Math.min(1, Number(confidence ?? 0.7))), approved: approved !== false, createdAt: new Date(), updatedAt: new Date() }
+    const r = await db.collection('merchant_map').insertOne(doc)
+    res.status(201).json({ map: await db.collection('merchant_map').findOne({ _id: r.insertedId }) })
+  } catch (e) { res.status(500).json({ error: 'merchants_create_failed' }) }
+})
+
+aiRouter.put('/api/ai/merchants/:id', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId)); const id = String(req.params.id)
+    if (!ObjectId.isValid(id)) { res.status(400).json({ error: 'bad_id' }); return }
+    const { pattern, merchant, confidence, approved } = req.body ?? {}
+    await db.collection('merchant_map').updateOne({ _id: new ObjectId(id), userId }, { $set: { pattern, merchant, confidence, approved, updatedAt: new Date() } })
+    res.json({ map: await db.collection('merchant_map').findOne({ _id: new ObjectId(id), userId }) })
+  } catch (e) { res.status(500).json({ error: 'merchants_update_failed' }) }
+})
+
+aiRouter.post('/api/ai/merchants/apply', requireAppJWT as any, async (req, res) => {
+  try {
+    const db = await getDb(); const userId = new ObjectId(String((req as any).userId));
+    const maps = await db.collection('merchant_map').find({ userId, approved: true }).toArray();
+    if (!maps.length) { res.json({ updated: 0 }); return }
+    const col = await transactionsCollection()
+    const cursor = col.find({ userId })
+    let updated = 0
+    for await (const tx of cursor) {
+      const note = String(tx.note || '').toLowerCase()
+      for (const m of maps) {
+        let match = false
+        try { match = new RegExp(m.pattern, 'i').test(note) } catch {}
+        if (match) { await col.updateOne({ _id: tx._id }, { $set: { merchantCanonical: m.merchant, updatedAt: new Date() } }); updated++; break }
+      }
+    }
+    res.json({ updated })
+  } catch (e) { res.status(500).json({ error: 'merchants_apply_failed' }) }
+})

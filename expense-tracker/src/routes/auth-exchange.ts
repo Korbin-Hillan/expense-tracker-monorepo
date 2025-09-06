@@ -190,8 +190,8 @@ const registerHandler: RequestHandler = async (req, res) => {
       return;
     }
 
-    if (password.length < 6) {
-      res.status(400).json({ error: "password_too_short" });
+    if (password.length < 8 || !(/[a-z]/.test(password) && (/[A-Z]/.test(password) || /\d/.test(password) || /[^\w\s]/.test(password)))) {
+      res.status(400).json({ error: "weak_password" });
       return;
     }
 
@@ -319,8 +319,8 @@ const resetPasswordHandler: RequestHandler = async (req, res) => {
       return;
     }
 
-    if (newPassword.length < 6) {
-      res.status(400).json({ error: "password_too_short" });
+    if (newPassword.length < 8 || !(/[a-z]/.test(newPassword) && (/[A-Z]/.test(newPassword) || /\d/.test(newPassword) || /[^\w\s]/.test(newPassword)))) {
+      res.status(400).json({ error: "weak_password" });
       return;
     }
 

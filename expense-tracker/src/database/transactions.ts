@@ -6,9 +6,14 @@ export type TransactionDoc = {
   _id?: ObjectId;
   userId: ObjectId;
   type: "expense" | "income";
-  amount: number;
+  // Monetary amount stored as integer cents to avoid FP drift
+  amountCents: number;
+  // Optional float for backward compatibility (derived)
+  amount?: number;
   category: string;
   note?: string;
+  tags?: string[];
+  receiptUrl?: string | null;
   date: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -50,6 +55,21 @@ export async function ensureTransactionIndexes() {
   }
   try {
     await col.createIndex({ userId: 1, categorySuggested: 1 }, { name: "user_categorySuggested" });
+  } catch (e) {
+    if (!(e as any).message?.includes("already exists")) throw e;
+  }
+  try {
+    await col.createIndex({ userId: 1, type: 1 }, { name: "user_type" });
+  } catch (e) {
+    if (!(e as any).message?.includes("already exists")) throw e;
+  }
+  try {
+    await col.createIndex({ userId: 1, category: 1 }, { name: "user_category" });
+  } catch (e) {
+    if (!(e as any).message?.includes("already exists")) throw e;
+  }
+  try {
+    await col.createIndex({ userId: 1, tags: 1 }, { name: "user_tags" });
   } catch (e) {
     if (!(e as any).message?.includes("already exists")) throw e;
   }

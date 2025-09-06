@@ -25,10 +25,14 @@ const GOOGLE_JWKS = createRemoteJWKSet(
 const GOOGLE_IOS_CLIENT_ID =
   process.env.GOOGLE_IOS_CLIENT_ID ||
   "900568024097-fpr7jr6l41lpk89bk68skt054489jrr5.apps.googleusercontent.com";
+const GOOGLE_WEB_CLIENT_ID = process.env.GOOGLE_WEB_CLIENT_ID;
 
 export async function verifyGoogleIdToken(idToken: string) {
+  const allowedAudiences = [GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID].filter(
+    (v): v is string => Boolean(v)
+  );
   const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
-    audience: GOOGLE_IOS_CLIENT_ID,
+    audience: allowedAudiences.length === 1 ? allowedAudiences[0] : allowedAudiences,
   });
   if (!GOOGLE_ISS.has(String(payload.iss))) throw new Error("bad_issuer");
   return payload;

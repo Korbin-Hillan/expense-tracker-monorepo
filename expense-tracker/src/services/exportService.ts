@@ -23,7 +23,7 @@ export class ExportService {
     return transactions.map(tx => ({
       id: tx._id!.toHexString(),
       type: tx.type,
-      amount: tx.amount,
+      amount: (tx as any).amountCents ? (tx as any).amountCents / 100 : (tx as any).amount,
       category: tx.category,
       note: tx.note || '',
       date: tx.date.toISOString().split('T')[0], // YYYY-MM-DD format
