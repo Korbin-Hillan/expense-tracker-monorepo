@@ -44,6 +44,10 @@ struct AppView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: screen)
+        // Deep link: View All from Home → Recent tab
+        .onReceive(NotificationCenter.default.publisher(for: .goToRecentTab)) { _ in
+            screen = .Recent
+        }
     }
     
     private func backgroundGradient(for screen: Screen) -> LinearGradient {

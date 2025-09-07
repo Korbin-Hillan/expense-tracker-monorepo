@@ -13,6 +13,7 @@ private enum LoadState { case loading, error(String), data(UserProfile) }
 struct ProfileView: View {
     @State private var state: LoadState = .loading
     var onSignOut: () -> Void = {}
+    private let userAPI = UserAPI()
 
     var body: some View {
         ScrollView {
@@ -50,32 +51,11 @@ struct ProfileView: View {
     private func loadProfile(force: Bool = false) async {
         state = .loading
 
-        guard let token = loadToken() else {
-            state = .error("No session found. Please sign in again.")
-            return
-        }
-
-        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/me")!)
-        req.httpMethod = "GET"
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse else {
-                state = .error("No HTTP response.")
-                return
-            }
-            switch http.statusCode {
-            case 200:
-                let me = try JSONDecoder().decode(UserProfileResponse.self, from: data)
-                state = .data(me.user)
-            case 401:
-                state = .error("Token invalid or expired. Please sign in again.")
-            default:
-                let body = String(data: data, encoding: .utf8) ?? "<non-UTF8>"
-                state = .error("Server error \(http.statusCode): \(body)")
-            }
+            let me = try await userAPI.me()
+            state = .data(me)
+        } catch let e as UserAPIError {
+            state = .error(e.localizedDescription)
         } catch {
             state = .error("Request failed: \(error.localizedDescription)")
         }

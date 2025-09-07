@@ -49,7 +49,8 @@ struct ImportDataSheet: View {
     @State private var importing = false
     @State private var status: String = ""
 
-    private let backend = URL(string: "http://192.168.0.119:3000/api/import/preview")!  // change me
+    // Backend base URL comes from AppConfig (Info.plist override supported)
+    private var backendPreviewURL: URL { AppConfig.baseURL.appendingPathComponent("/api/import/preview") }
 
     var body: some View {
         NavigationView {
@@ -181,7 +182,7 @@ struct ImportDataSheet: View {
     private func uploadFile(_ pickedURL: URL, mime: String) async throws -> String {
         let boundary = "----\(UUID().uuidString)"
 
-        var req = URLRequest(url: backend) // your /uploads (or /api/import/preview) URL
+        var req = URLRequest(url: backendPreviewURL) // /api/import/preview on current backend
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -295,7 +296,7 @@ struct ImportDataSheet: View {
     
     private func fetchColumns(for fileURL: URL, mime: String) async throws -> ColumnsResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/columns")!)
+        var req = URLRequest(url: AppConfig.baseURL.appendingPathComponent("/api/import/columns"))
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -325,7 +326,7 @@ struct ImportDataSheet: View {
         mapping: SuggestedMapping
     ) async throws -> PreviewResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/preview")!)
+        var req = URLRequest(url: AppConfig.baseURL.appendingPathComponent("/api/import/preview"))
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -367,7 +368,7 @@ struct ImportDataSheet: View {
         overwriteDuplicates: Bool = false
     ) async throws -> CommitResp {
         let boundary = "----\(UUID().uuidString)"
-        var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/import/commit")!)
+        var req = URLRequest(url: AppConfig.baseURL.appendingPathComponent("/api/import/commit"))
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 

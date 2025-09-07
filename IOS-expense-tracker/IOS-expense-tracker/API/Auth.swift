@@ -63,12 +63,12 @@ struct MeResponse: Codable {
 }
 
 func auth(_ idToken: String) async throws -> LoginResponse {
-    var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/auth/session")!)
+    var req = URLRequest(url: AppConfig.baseURL.appendingPathComponent("/api/auth/session"))
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
 
-    let (data, resp) = try await URLSession.shared.data(for: req)
+    let (data, resp) = try await AuthSession.shared.rawRequest(req)
     guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
     // Debug visibility
@@ -106,13 +106,13 @@ func userCheck() async {
         print(String(format: "⏳ Token time left: %.0fs", secs))
     }
     
-    var req = URLRequest(url: URL(string: "http://192.168.0.119:3000/api/me")!)
+    var req = URLRequest(url: AppConfig.baseURL.appendingPathComponent("/api/me"))
     req.httpMethod = "GET"
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     
     do {
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await AuthSession.shared.rawRequest(req)
         guard let http = resp as? HTTPURLResponse else {
             print("⚠️ No HTTP response")
             return

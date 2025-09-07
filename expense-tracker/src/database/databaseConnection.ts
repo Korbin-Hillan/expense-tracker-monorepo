@@ -44,14 +44,12 @@ async function ensureIndexes(db: Db) {
     { unique: true, name: "uniq_selector" }
   );
   await refresh.createIndex({ userId: 1 });
-  // TTL index to auto-expire old refresh tokens
   try {
     await refresh.createIndex(
       { expiresAt: 1 },
       { name: "ttl_expiresAt", expireAfterSeconds: 0 }
     );
   } catch (e) {
-    // ignore if exists in another form
   }
 }
 

@@ -23,12 +23,17 @@ struct StatsView: View {
     @State private var gptSavings: SavingsPlaybook? = nil
     @State private var gptBudget: [BudgetItem] = []
     @State private var gptSubscriptions: [SubscriptionItem] = []
+    @State private var serverSubs: [AIClient.ServerSub] = []
     @State private var gptDigest: String? = nil
     @State private var gptDigestLoading = false
+    @State private var exportURL: URL? = nil
     // Health & alerts
     @State private var healthLoading = false
     @State private var healthScore: AIClient.HealthScoreResponse? = nil
     @State private var alerts: [AIClient.AlertItem] = []
+    @State private var budgetStatus: BudgetStatusResponse? = nil
+    @State private var budgetsList: [BudgetItemDTO] = []
+    @State private var showingEditBudgets = false
     
     // Use system adaptive colors within material cards
     private var adaptiveTextColor: Color { .primary }
@@ -140,6 +145,9 @@ struct StatsView: View {
                     alertsSection(alerts)
                 }
 
+                // Budgets (always show header with Edit)
+                budgetsContainer
+
                 // GPT Insights List
                 if !gptInsights.isEmpty {
                     gptInsightsSection
@@ -156,8 +164,8 @@ struct StatsView: View {
                 }
 
                 // Subscription Detective
-                if !gptSubscriptions.isEmpty {
-                    subscriptionsSection(gptSubscriptions)
+                if !serverSubs.isEmpty {
+                    serverSubscriptionsSection(serverSubs)
                 }
 
                 // (Server Insights removed in favor of conversational agent)
@@ -178,9 +186,33 @@ struct StatsView: View {
         .task {
             await loadTransactions()
             await fetchHealthAndAlerts()
+            await fetchBudgets()
+            await fetchServerSubs()
         }
         .sheet(isPresented: $showingAgentChat) {
             AgentChatView()
+        }
+        .sheet(isPresented: $showingEditBudgets) {
+            EditBudgetsSheet(
+                initialBudgets: budgetsList,
+                suggestedCategories: suggestedBudgetCategories(),
+                onSaved: { updated in
+                    budgetsList = updated
+                    Task { await fetchBudgets() }
+                }
+            )
+        }
+    }
+
+    private func fetchBudgets() async {
+        do {
+            let api = BudgetsAPI()
+            async let s = api.status()
+            async let l = api.list()
+            self.budgetStatus = try await s
+            self.budgetsList = try await l
+        } catch {
+            print("Failed to load budgets status: \(error)")
         }
     }
     
@@ -311,12 +343,28 @@ struct StatsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(a.title).font(.subheadline).foregroundColor(.primary).fontWeight(.semibold)
                         Text(a.body).font(.caption).foregroundColor(.secondary)
+                        if let key = a.key, !key.isEmpty {
+                            Button(action: { Task { await muteAlert(key: key) } }) {
+                                Label("Mute this alert", systemImage: "bell.slash")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
                     Spacer()
                 }
                 .padding(10)
                 .cardStyle(cornerRadius: 10)
             }
+        }
+    }
+
+    private func muteAlert(key: String) async {
+        do {
+            try await AIClient().setAlertPref(key: key, mute: true)
+            await fetchHealthAndAlerts()
+        } catch {
+            print("Failed to mute alert: \(error)")
         }
     }
 
@@ -738,6 +786,176 @@ struct StatsView: View {
             }
         }
     }
+    private func fetchServerSubs() async {
+        do {
+            let ai = AIClient()
+            self.serverSubs = try await ai.serverSubscriptions()
+        } catch {
+            print("Failed to load server subs: \(error)")
+        }
+    }
+
+    private func exportSubs() async {
+        do {
+            let data = try await AIClient().exportSubscriptionsCSV()
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("subscriptions.csv")
+            try data.write(to: tmp)
+            await MainActor.run { exportURL = tmp }
+        } catch {
+            print("Failed to export subscriptions: \(error)")
+        }
+    }
+}
+
+// MARK: - Budgets Section
+private extension StatsView {
+    // Container that always shows a Budgets header + Edit button
+    var budgetsContainer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Budgets")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Edit") { showingEditBudgets = true }
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 4)
+
+            if let bs = budgetStatus, !bs.status.isEmpty {
+                LazyVStack(spacing: 8) {
+                    ForEach(bs.status) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.category)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                                Text("$\(item.spent, specifier: "%.2f") of $\(item.monthly, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text(item.level.uppercased())
+                                .font(.caption2).fontWeight(.bold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(levelColor(item.level))
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        .padding(12)
+                        .cardStyle(cornerRadius: 12)
+                    }
+                }
+            } else {
+                Text("No budgets yet. Tap Edit to add category budgets and track monthly progress.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    func budgetsSection(_ data: BudgetStatusResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Budgets")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Edit") { showingEditBudgets = true }
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 4)
+
+            LazyVStack(spacing: 8) {
+                ForEach(data.status) { item in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.category)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                            Text("$\(item.spent, specifier: "%.2f") of $\(item.monthly, specifier: "%.2f")")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(item.level.uppercased())
+                            .font(.caption2).fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(levelColor(item.level))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .padding(12)
+                    .cardStyle(cornerRadius: 12)
+                }
+            }
+        }
+    }
+
+    func levelColor(_ level: String) -> Color {
+        switch level {
+        case "danger": return .red
+        case "warn": return .orange
+        default: return .green
+        }
+    }
+}
+
+// MARK: - Subscriptions Section
+private extension StatsView {
+    func serverSubscriptionsSection(_ subs: [AIClient.ServerSub]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Subscriptions")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Export CSV") { Task { await exportSubs() } }
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 4)
+
+            LazyVStack(spacing: 10) {
+                ForEach(subs, id: \.id) { s in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(s.note.capitalized)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                            Text("~$\(s.monthlyEstimate, specifier: "%.2f")/mo • \(s.frequency) • \(s.count) charges")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 12) {
+                                Button("Ignore") { Task { await setSubPref(note: s.note, ignore: true) } }
+                                    .font(.caption)
+                                Button("Cancel") { Task { await setSubPref(note: s.note, cancel: true) } }
+                                    .font(.caption)
+                            }
+                        }
+                        Spacer()
+                        Text("Avg $\(s.avg, specifier: "%.2f")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(12)
+                    .cardStyle(cornerRadius: 12)
+                }
+            }
+        }
+    }
+
+    private func setSubPref(note: String, ignore: Bool? = nil, cancel: Bool? = nil) async {
+        do {
+            try await AIClient().setSubscriptionPref(note: note, ignore: ignore, cancel: cancel)
+            await fetchServerSubs()
+        } catch {
+            print("Failed to set subscription pref: \(error)")
+        }
+    }
+
 }
 
 struct InsightCard: View {
@@ -813,5 +1031,16 @@ struct InsightCard: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(.white.opacity(0.2), lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Helper: suggested categories for budgets
+private extension StatsView {
+    func suggestedBudgetCategories() -> [String] {
+        var set = Set<String>(budgetsList.map { $0.category })
+        for t in transactions { set.insert(t.category) }
+        let defaults = ["Food","Transportation","Shopping","Bills","Entertainment","Health","Subscriptions","Utilities","Internet","Groceries","Gas"]
+        for d in defaults { set.insert(d) }
+        return Array(set).sorted()
     }
 }

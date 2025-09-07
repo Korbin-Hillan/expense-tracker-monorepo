@@ -98,7 +98,22 @@ struct FileColumnsResult: Codable {
     }
 }
 
-enum TxError: LocalizedError { case badResponse, server(String) }
+enum TxError: LocalizedError {
+    case badResponse
+    case server(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .badResponse:
+            return "Unexpected response from server. Please try again."
+        case .server(let message):
+            // Provide a safer, user-friendly description while preserving server detail
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return "Server returned an error." }
+            return trimmed
+        }
+    }
+}
 
 final class TransactionsAPI {
     private let base = AppConfig.baseURL

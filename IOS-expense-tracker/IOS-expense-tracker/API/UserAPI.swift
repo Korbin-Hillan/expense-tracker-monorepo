@@ -39,6 +39,23 @@ enum UserAPIError: LocalizedError {
 final class UserAPI {
     private let base = AppConfig.baseURL
     
+    func me() async throws -> UserProfile {
+        var req = URLRequest(url: base.appendingPathComponent("/api/me"))
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse else { throw UserAPIError.badResponse }
+        switch http.statusCode {
+        case 200:
+            return try JSONDecoder().decode(UserProfileResponse.self, from: data).user
+        case 401:
+            throw UserAPIError.notAuthenticated
+        default:
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw UserAPIError.server(msg)
+        }
+    }
+    
     func deleteAccount() async throws -> DeleteAccountResponse {
         Logger.shared.debug("Attempting to delete user account")
         
@@ -84,6 +101,31 @@ final class UserAPI {
                 Logger.shared.error("Delete account request failed: \(error.localizedDescription)")
                 throw UserAPIError.server("Network request failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    struct UpdateProfileRequest: Codable {
+        let name: String?
+        let timezone: String?
+    }
+
+    func updateProfile(name: String?, timezone: String?) async throws -> UserProfile {
+        var req = URLRequest(url: base.appendingPathComponent("/api/user/profile"))
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let body = UpdateProfileRequest(name: name, timezone: timezone)
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse else { throw UserAPIError.badResponse }
+        switch http.statusCode {
+        case 200:
+            return try JSONDecoder().decode(UserProfileResponse.self, from: data).user
+        case 401:
+            throw UserAPIError.notAuthenticated
+        default:
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw UserAPIError.server(msg)
         }
     }
 }

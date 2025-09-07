@@ -196,9 +196,21 @@ struct HomeView: View {
                     .padding(.horizontal, 4)
                     
                     if recent.isEmpty {
-                        Text("No recent transactions yet")
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 4)
+                        VStack(spacing: 12) {
+                            Image(systemName: "tray")
+                                .font(.system(size: 40))
+                                .foregroundColor(.secondary)
+                            Text("No recent transactions yet")
+                                .foregroundColor(.secondary)
+                            Button {
+                                showingAddExpense = true
+                            } label: {
+                                Label("Add your first transaction", systemImage: "plus.circle.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     } else {
                         VStack(spacing: 12) {
                             ForEach(recent.prefix(3)) { t in
@@ -224,6 +236,10 @@ struct HomeView: View {
         .onReceive(billStorage.$bills) { _ in
             // Recalculate balance when bills change
             calculateBalances()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .goToRecentTab)) { _ in
+            // Optionally refresh recent data when switching to Recent tab
+            Task { await loadRecent() }
         }
         .sheet(isPresented: $showingAddExpense) {
             AddTransactionSheet(kind: .expense) { _ in

@@ -42,12 +42,14 @@ enum AuthError: LocalizedError {
 }
 
 final class AuthClient {
-    let base = URL(string: "http://192.168.0.119:3000")! // ← your API base
+    let base = AppConfig.baseURL
     
     func testConnection() async {
         print("🌐 AuthClient: Testing connection to \(base)")
         do {
-            let (data, response) = try await URLSession.shared.data(from: base)
+            var req = URLRequest(url: base)
+            req.timeoutInterval = 20
+            let (data, response) = try await AuthSession.shared.rawRequest(req)
             if let httpResponse = response as? HTTPURLResponse {
                 print("✅ Connection test: Status \(httpResponse.statusCode)")
                 print("📥 Response: \(String(data: data, encoding: .utf8) ?? "<no data>")")
@@ -94,7 +96,7 @@ final class AuthClient {
         print("📤 Request body: \(requestBody)")
 
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await AuthSession.shared.rawRequest(req, retries: 2)
             guard let http = resp as? HTTPURLResponse else {
                 print("❌ AuthClient: No HTTP response received")
                 throw AuthError.badResponse
@@ -160,7 +162,7 @@ final class AuthClient {
         print("📤 Request body: \(requestBody)")
 
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await AuthSession.shared.rawRequest(req, retries: 2)
             guard let http = resp as? HTTPURLResponse else {
                 print("❌ AuthClient: No HTTP response received for registration")
                 throw AuthError.badResponse
@@ -227,7 +229,7 @@ final class AuthClient {
         print("📤 Request body: \(requestBody)")
 
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await AuthSession.shared.rawRequest(req, retries: 2)
             guard let http = resp as? HTTPURLResponse else {
                 print("❌ AuthClient: No HTTP response received")
                 throw AuthError.badResponse

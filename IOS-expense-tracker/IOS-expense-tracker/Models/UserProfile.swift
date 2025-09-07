@@ -12,6 +12,7 @@ struct UserProfile: Decodable {
     let email: String?
     let name: String?
     let provider: String?
+    let timezone: String?
 }
 
 struct UserProfileResponse: Decodable {

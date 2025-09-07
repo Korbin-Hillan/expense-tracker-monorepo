@@ -98,6 +98,21 @@ struct GPTInsightsPayload: Codable {
 }
 
 extension AIClient {
+    struct ServerSubsResponse: Codable { let subs: [ServerSub] }
+    struct ServerSub: Codable, Identifiable { var id: String { note }; let note: String; let count: Int; let avg: Double; let monthlyEstimate: Double; let frequency: String }
+
+    func serverSubscriptions() async throws -> [ServerSub] {
+        let url = base.appendingPathComponent("/api/ai/subscriptions")
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "server_error"
+            throw TxError.server(msg)
+        }
+        return try JSONDecoder().decode(ServerSubsResponse.self, from: data).subs
+    }
     func gptInsights() async throws -> GPTInsightsPayload {
         let url = base.appendingPathComponent("/api/ai/insights/gpt")
         var req = URLRequest(url: url)
@@ -203,7 +218,7 @@ extension AIClient {
 extension AIClient {
     struct HealthComponent: Codable { let key: String; let label: String; let score: Int; let max: Int }
     struct HealthScoreResponse: Codable { let score: Int; let components: [HealthComponent]; let recommendations: [String] }
-    struct AlertItem: Codable, Identifiable { let id: String; let title: String; let body: String; let severity: String }
+    struct AlertItem: Codable, Identifiable { let id: String; let title: String; let body: String; let severity: String; let key: String? }
     private struct AlertsResponse: Codable { let alerts: [AlertItem] }
 
     func healthScore() async throws -> HealthScoreResponse {
@@ -230,5 +245,49 @@ extension AIClient {
             throw TxError.server(msg)
         }
         return try JSONDecoder().decode(AlertsResponse.self, from: data).alerts
+    }
+}
+
+// MARK: - Preferences (alerts/subscriptions)
+extension AIClient {
+    func setAlertPref(key: String, mute: Bool) async throws {
+        let url = base.appendingPathComponent("/api/ai/alerts/prefs")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["key": key, "mute": mute])
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "server_error"
+            throw TxError.server(msg)
+        }
+    }
+
+    func setSubscriptionPref(note: String, ignore: Bool?, cancel: Bool?) async throws {
+        let url = base.appendingPathComponent("/api/ai/subscriptions/prefs")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["note": note]
+        if let ignore = ignore { payload["ignore"] = ignore }
+        if let cancel = cancel { payload["cancel"] = cancel }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "server_error"
+            throw TxError.server(msg)
+        }
+    }
+
+    func exportSubscriptionsCSV() async throws -> Data {
+        let url = base.appendingPathComponent("/api/ai/subscriptions/export.csv")
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        let (data, resp) = try await AuthSession.shared.authedRequest(req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "server_error"
+            throw TxError.server(msg)
+        }
+        return data
     }
 }

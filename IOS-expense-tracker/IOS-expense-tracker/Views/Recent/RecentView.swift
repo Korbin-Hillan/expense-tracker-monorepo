@@ -83,6 +83,26 @@ struct RecentView: View {
                     .padding(.vertical, 8)
                 }
                 
+                if !loading && txs.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 44))
+                            .foregroundColor(.secondary)
+                        Text("No transactions yet")
+                            .foregroundColor(.secondary)
+                        Button {
+                            // Suggest adding an expense from Home
+                            NotificationCenter.default.post(name: .goToRecentTab, object: nil)
+                        } label: {
+                            Label("Add your first transaction from Home", systemImage: "plus.circle")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                    .listRowBackground(Color.clear)
+                }
+                
                 ForEach(txs) { t in
                     TransactionRowDetailed(
                         transaction: t,

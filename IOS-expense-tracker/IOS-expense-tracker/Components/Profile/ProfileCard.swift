@@ -29,26 +29,8 @@ struct ProfileCard: View {
         VStack(spacing: 32) {
             // Header with Avatar and Info
             VStack(spacing: 20) {
-                ZStack {
-                    // Gradient background for avatar
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.blue.opacity(0.8), .purple.opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 140, height: 140)
-                        .overlay(
-                            Circle()
-                                .stroke(.white.opacity(0.3), lineWidth: 3)
-                        )
-                    
-                    Text(initial)
-                        .font(.system(size: 60, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                }
+                Avatar(initial: initial)
+                    .frame(width: 140, height: 140)
                 
                 VStack(spacing: 12) {
                     if let name = profile.name, !name.isEmpty {
@@ -80,6 +62,21 @@ struct ProfileCard: View {
                         .padding(.vertical, 6)
                         .background(.white.opacity(0.2))
                         .cornerRadius(12)
+                        .foregroundColor(adaptiveSecondaryTextColor)
+                    }
+
+                    if let tz = profile.timezone, !tz.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "globe")
+                                .font(.caption)
+                            Text(tz)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.white.opacity(0.15))
+                        .cornerRadius(10)
                         .foregroundColor(adaptiveSecondaryTextColor)
                     }
                 }
@@ -168,6 +165,11 @@ struct ProfileCard: View {
                         )
                     }
                 }
+
+                // Edit Profile action
+                EditProfileButton(profile: profile) { updated in
+                    // No-op: parent view will refetch on demand
+                }
                 
                 // Sign out button
                 Button(action: onSignOut) {
@@ -218,6 +220,38 @@ struct ProfileCard: View {
         } catch {
             print("Failed to load profile stats: \(error)")
             isLoadingStats = false
+        }
+    }
+}
+
+private struct EditProfileButton: View {
+    let profile: UserProfile
+    var onUpdated: (UserProfile) -> Void
+    @State private var showingEdit = false
+
+    var body: some View {
+        Button(action: { showingEdit = true }) {
+            HStack {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Edit Profile")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(.white.opacity(0.25))
+            .foregroundColor(.white)
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.white.opacity(0.4), lineWidth: 1)
+            )
+        }
+        .sheet(isPresented: $showingEdit) {
+            EditProfileSheet(initialProfile: profile) { updated in
+                onUpdated(updated)
+                showingEdit = false
+            }
         }
     }
 }

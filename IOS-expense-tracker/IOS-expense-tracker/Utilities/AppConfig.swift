@@ -11,11 +11,18 @@ struct AppConfig {
     
     // MARK: - API Configuration
     
-    #if DEBUG
-    static let baseURL = URL(string: "http://192.168.0.119:3000")!
-    #else
-    static let baseURL = URL(string: "https://your-production-api.com")!
-    #endif
+    // Prefer Info.plist override (API_BASE_URL) to support TestFlight/Prod without code changes
+    static let baseURL: URL = {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
+           let url = URL(string: raw), !raw.isEmpty {
+            return url
+        }
+        #if DEBUG
+        return URL(string: "http://192.168.0.119:3000")!
+        #else
+        return URL(string: "https://your-production-api.com")!
+        #endif
+    }()
     
     // MARK: - Budget Configuration
     
