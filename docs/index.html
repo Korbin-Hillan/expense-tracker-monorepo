@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -13,18 +13,66 @@
         --link: #60a5fa;
         --accent: #22c55e;
       }
-      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-      .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 60px; }
-      header { margin-bottom: 24px; }
-      h1 { margin: 0 0 12px; font-size: 28px; }
-      .tag { display: inline-block; background: #16a34a22; border: 1px solid #16a34a55; color: var(--accent); padding: 2px 8px; border-radius: 999px; font-size: 12px; }
-      section { background: var(--card); border: 1px solid #1f2937; border-radius: 12px; padding: 18px 16px; margin: 14px 0; }
-      h2 { font-size: 18px; margin: 0 0 8px; }
-      a { color: var(--link); text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      code { background: #020617; padding: 2px 6px; border-radius: 6px; }
-      ul { margin: 8px 0 0 18px; }
-      .small { color: var(--muted); font-size: 14px; }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      .wrap {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 28px;
+      }
+      .tag {
+        display: inline-block;
+        background: #16a34a22;
+        border: 1px solid #16a34a55;
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      section {
+        background: var(--card);
+        border: 1px solid #1f2937;
+        border-radius: 12px;
+        padding: 18px 16px;
+        margin: 14px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      a {
+        color: var(--link);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      code {
+        background: #020617;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      ul {
+        margin: 8px 0 0 18px;
+      }
+      .small {
+        color: var(--muted);
+        font-size: 14px;
+      }
     </style>
   </head>
   <body>
@@ -37,12 +85,21 @@
       <section>
         <h2>Getting Help</h2>
         <p>
-          Thanks for using Expense Tracker! If you run into issues or have feedback,
-          use the options below and we’ll get back to you.
+          Thanks for using Expense Tracker! If you run into issues or have
+          feedback, use the options below and we’ll get back to you.
         </p>
         <ul>
-          <li>Email support: <a href="mailto:support@yourdomain.com">support@yourdomain.com</a></li>
-          <li>Open an issue: <a href="https://github.com/your-org/expense-tracker-support/issues">GitHub Issues</a></li>
+          <li>
+            Email support:
+            <a href="mailto:support@yourdomain.com">khillan5223@gmail.com</a>
+          </li>
+          <li>
+            Open an issue:
+            <a
+              href="https://github.com/Korbin-Hillan/expense-tracker-monorepo/issues"
+              >GitHub Issues</a
+            >
+          </li>
         </ul>
         <p class="small">Replace the email and GitHub links with your own.</p>
       </section>
@@ -50,30 +107,50 @@
       <section>
         <h2>Common Questions</h2>
         <ul>
-          <li><strong>Can’t sign in?</strong> Make sure you’re on the latest app version and have a reliable network. If you recently changed devices, try logging out and back in.</li>
-          <li><strong>Recent shows empty?</strong> Add a new transaction on Home to verify connectivity. If it still doesn’t appear, contact support with your device model and app version.</li>
-          <li><strong>CSV/XLSX import fails?</strong> Ensure the file is under 25&nbsp;MB and includes headers for date/description/amount. If you can, send a redacted sample to support so we can reproduce.</li>
-          <li><strong>Duplicate transactions?</strong> The importer uses hash‑based matching to avoid duplicates. If you see unexpected duplicates, tell us the date/amount/description so we can investigate.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Troubleshooting</h2>
-        <ul>
-          <li>Check service status: <a href="https://expense-tracker-backend-xbjz.onrender.com/healthz" target="_blank" rel="noopener">API health</a></li>
-          <li>Try on Wi‑Fi and cellular to rule out network filters.</li>
-          <li>Reinstall the app to clear cached credentials if sign‑in loops.</li>
+          <li>
+            <strong>Can’t sign in?</strong> Make sure you’re on the latest app
+            version and have a reliable network. If you recently changed
+            devices, try logging out and back in.
+          </li>
+          <li>
+            <strong>Recent shows empty?</strong> Add a new transaction on Home
+            to verify connectivity. If it still doesn’t appear, contact support
+            with your device model and app version.
+          </li>
+          <li>
+            <strong>CSV/XLSX import fails?</strong> Ensure the file is under
+            25&nbsp;MB and includes headers for date/description/amount. If you
+            can, send a redacted sample to support so we can reproduce.
+          </li>
+          <li>
+            <strong>Duplicate transactions?</strong> The importer uses
+            hash‑based matching to avoid duplicates. If you see unexpected
+            duplicates, tell us the date/amount/description so we can
+            investigate.
+          </li>
         </ul>
       </section>
 
       <section>
         <h2>Privacy &amp; Data</h2>
-        <p>We take privacy seriously. You can delete your account and data at any time from the app’s Settings.</p>
-        <p>Privacy Policy: <a href="./privacy.html" target="_blank" rel="noopener">View Privacy Policy</a></p>
+        <p>
+          We take privacy seriously. You can delete your account and data at any
+          time from the app’s Settings.
+        </p>
+        <p>
+          Privacy Policy:
+          <a href="./privacy.html" target="_blank" rel="noopener"
+            >View Privacy Policy</a
+          >
+        </p>
       </section>
 
-      <p class="small">© <span id="y"></span> Your Company. All rights reserved.</p>
+      <p class="small">
+        © <span id="y"></span> Your Company. All rights reserved.
+      </p>
     </div>
-    <script>document.getElementById('y').textContent = new Date().getFullYear()</script>
+    <script>
+      document.getElementById("y").textContent = new Date().getFullYear();
+    </script>
   </body>
-  </html>
+</html>
