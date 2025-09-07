@@ -473,7 +473,7 @@ export class ImportService {
           // Same date (to ISO yyyy-mm-dd)
           existing.date.toISOString().slice(0, 10) === newTx.date &&
           // Same amount (both positive in this schema)
-          Math.abs(existing.amount - newTx.amount) < 0.01 &&
+          Math.abs(existing.amountCents - Math.round(newTx.amount * 100)) < 1 &&
           // Similar description
           this.similarStrings(existing.note || "", newTx.description)
       );

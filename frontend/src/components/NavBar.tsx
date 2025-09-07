@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react';
 import { auth } from '@/state/auth'
 import { api } from '@/lib/api'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -52,14 +52,18 @@ export function NavBar() {
     <div>
       <nav className="nav">
         <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-          <button className="hamburger" aria-label="Toggle navigation" onClick={() => {
-            document.body.classList.toggle('show-sidebar')
-          }}>
-            <span />
-            <span />
-            <span />
-          </button>
-          <div className="logo" aria-label="Expense Tracker">€T</div>
+          <a href="/dashboard" className="row" style={{ gap: 10, textDecoration: 'none' }} aria-label="Go to dashboard">
+            <div className="logo" aria-hidden>€T</div>
+            <strong style={{ letterSpacing: 0.2 }}>Expense Tracker</strong>
+          </a>
+          <div className="topnav">
+            <NavLink to="/dashboard" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Dashboard</NavLink>
+            <NavLink to="/budgets" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Budgets</NavLink>
+            <NavLink to="/insights" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Insights</NavLink>
+            <NavLink to="/import" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Import</NavLink>
+            <NavLink to="/rules" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Rules</NavLink>
+            <NavLink to="/integrations" className={({isActive})=>`topnav-link${isActive?' active':''}`}>Integrations</NavLink>
+          </div>
         </div>
         <span style={{ flex: 1 }} />
         <div className="row" style={{ gap: 10, alignItems: 'center' }}>
@@ -90,7 +94,7 @@ export function NavBar() {
                     <div className="dropdown-identity">{user?.name || 'Account'}</div>
                     <div className="dropdown-email">{user?.email}</div>
                   </div>
-                  <NavLink to="/settings" className="dropdown-item" onClick={(e)=>{}}>
+                  <NavLink to="/settings" className="dropdown-item" onClick={()=>{}}>
                     Settings
                   </NavLink>
                   <NavLink to="/integrations" className="dropdown-item">

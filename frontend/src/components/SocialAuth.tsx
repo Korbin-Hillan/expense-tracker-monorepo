@@ -42,56 +42,84 @@ function AppleIcon() {
 }
 
 export function GoogleSignInButton() {
-  const [ready, setReady] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const navigate = useNavigate()
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
   useEffect(() => {
-    if (!clientId) return
-    let mounted = true
+    if (!clientId) return;
+
+    let mounted = true;
+    let interval: number | null = null;
+
     loadScript('https://accounts.google.com/gsi/client').then(() => {
-      if (!mounted || !window.google) return
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (resp: any) => {
+      if (!mounted) return;
+
+      let attempts = 0;
+      interval = setInterval(() => {
+        if (!mounted) {
+          clearInterval(interval!); 
+          return;
+        }
+
+        if (window.google?.accounts?.id) {
+          clearInterval(interval!);
           try {
-            const idToken = resp?.credential
-            if (!idToken) return
-            const session = await api.loginWithBearer(idToken)
-            auth.setSession(session)
-            navigate('/dashboard')
-          } catch (e) {
-            console.error('google login failed', e)
+            window.google.accounts.id.initialize({
+              client_id: clientId,
+              callback: async (resp: any) => {
+                try {
+                  const idToken = resp?.credential;
+                  if (!idToken) return;
+                  const session = await api.loginWithBearer(idToken);
+                  auth.setSession(session);
+                  navigate('/dashboard');
+                } catch (e) {
+                  console.error('google login failed', e);
+                }
+              },
+            });
+            if (ref.current) {
+              window.google.accounts.id.renderButton(ref.current, { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'rectangular', width: 260 });
+            }
+          } catch (error) {
+            console.error("Google button render failed", error);
           }
-        },
-      })
-      if (ref.current) {
-        window.google.accounts.id.renderButton(ref.current, { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'rectangular', width: 260 })
-        setReady(true)
+        } else if (attempts > 10) { // Timeout after ~2 seconds
+          clearInterval(interval!);
+          console.error("Google script loaded but window.google not found.");
+        }
+        attempts++;
+      }, 200); // Check every 200ms
+    }).catch(console.error);
+
+    return () => {
+      mounted = false;
+      if (interval) {
+        clearInterval(interval);
       }
-    })
-    return () => { mounted = false }
-  }, [clientId])
+    };
+  }, [clientId, navigate]);
 
   if (!clientId) {
     return (
-      <button className="btn-ghost" title="Set VITE_GOOGLE_CLIENT_ID in .env" disabled>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <button className="social-btn" title="Set VITE_GOOGLE_CLIENT_ID in .env" disabled>
+        <span className="row" style={{ gap: 8 }}>
           <GoogleIcon /> Continue with Google
         </span>
       </button>
-    )
+    );
   }
   return (
-    <div>
+    <div style={{ width: 260, minHeight: 40, display: 'flex', justifyContent: 'center' }}>
       <div ref={ref} />
     </div>
-  )
+  );
 }
 
 export function AppleSignInButton() {
   const navigate = useNavigate()
+  // @ts-ignore: inited is used in the disabled prop of the button
   const [inited, setInited] = useState(false)
   const clientId = import.meta.env.VITE_APPLE_CLIENT_ID as string | undefined
   const redirectURI = (import.meta.env.VITE_APPLE_REDIRECT_URI as string | undefined) || window.location.origin + '/'
@@ -114,8 +142,8 @@ export function AppleSignInButton() {
 
   if (!clientId) {
     return (
-      <button className="btn-ghost" title="Set VITE_APPLE_CLIENT_ID in .env" disabled>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <button className="social-btn" title="Set VITE_APPLE_CLIENT_ID in .env" disabled>
+        <span className="row" style={{ gap: 8 }}>
           <AppleIcon /> Continue with Apple
         </span>
       </button>
@@ -124,6 +152,10 @@ export function AppleSignInButton() {
 
   async function signIn() {
     try {
+      if (!window.AppleID?.auth) {
+        alert('Apple Sign in is not configured for this origin. Please check your Apple Services ID and redirect URI.');
+        return;
+      }
       const resp = await window.AppleID.auth.signIn()
       const idToken = resp?.authorization?.id_token
       if (!idToken) return
@@ -132,12 +164,13 @@ export function AppleSignInButton() {
       navigate('/dashboard')
     } catch (e) {
       console.error('apple sign-in failed', e)
+      alert('Apple sign-in failed. Please verify Apple configuration or try again later.')
     }
   }
 
   return (
-    <button onClick={signIn} disabled={!inited} className="btn-ghost" aria-label="Sign in with Apple">
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <button type="button" onClick={signIn} className="social-btn" aria-label="Sign in with Apple" style={{ width: 260 }}>
+      <span className="row" style={{ gap: 8 }}>
         <AppleIcon /> Continue with Apple
       </span>
     </button>

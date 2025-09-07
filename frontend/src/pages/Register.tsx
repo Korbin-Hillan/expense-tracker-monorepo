@@ -71,7 +71,7 @@ export function Register() {
           <GoogleSignInButton />
           <AppleSignInButton />
         </div>
-        <p className="muted" style={{ marginTop: 12 }}>Have an account? <Link to="/login">Login</Link></p>
+        <p className="muted" style={{ marginTop: 12, textAlign: 'center' }}>Have an account? <Link to="/login">Login</Link></p>
       </div>
     </div>
   )

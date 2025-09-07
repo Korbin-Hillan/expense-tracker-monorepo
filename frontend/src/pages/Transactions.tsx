@@ -83,7 +83,7 @@ export function Transactions() {
     e.preventDefault()
     const amount = parseFloat(form.amount)
     if (!isFinite(amount)) return
-    const saved = await api.addTransaction({ type: form.type, amount, category: form.category, note: (form.note || null) as any, date: form.date || undefined })
+    await api.addTransaction({ type: form.type, amount, category: form.category, note: (form.note || null) as any, date: form.date || undefined })
     toast('Transaction added', 'success')
     setForm({ type: 'expense', amount: '', category: '', note: '', date: '' })
     await load()

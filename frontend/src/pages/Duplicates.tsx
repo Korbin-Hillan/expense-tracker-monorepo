@@ -18,7 +18,7 @@ export function DuplicatesPage() {
   }
   useEffect(() => { load() }, [])
 
-  async function resolve(key: string, keepId: string, deleteIds: string[]) {
+  async function resolve(keepId: string, deleteIds: string[]) {
     const n = await api.resolveDuplicates(keepId, deleteIds)
     toast(`Removed ${n.deleted} duplicate(s)`, 'success')
     await load()
@@ -49,7 +49,7 @@ export function DuplicatesPage() {
                   <td>
                     <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                       {g.items.map((it, idx) => (
-                        <button key={it.id} className="btn-ghost" onClick={() => resolve(g.key, it.id, g.items.filter(x => x.id !== it.id).map(x => x.id))}>Keep #{idx+1}</button>
+                        <button key={it.id} className="btn-ghost" onClick={() => resolve(it.id, g.items.filter(x => x.id !== it.id).map(x => x.id))}>Keep #{idx+1}</button>
                       ))}
                     </div>
                   </td>

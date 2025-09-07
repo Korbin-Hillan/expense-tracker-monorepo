@@ -53,7 +53,15 @@ The repository is a monorepo containing three main projects:
     ```
 
 3.  **Configure environment variables:**
-    Create a `.env` file in the `backend` directory by copying the `.env.example` (if one exists) and fill in the required values, such as your MongoDB connection string and JWT secrets.
+    Create a `.env` in `backend` from `.env.example` and set:
+    - `MONGODB_URI` and `DB_NAME`
+    - `APP_JWT_*` issuer/keys
+    - CORS `ALLOWED_ORIGINS` for production
+    - Social sign-in (if used):
+      - `GOOGLE_WEB_CLIENT_ID` (must match `frontend VITE_GOOGLE_CLIENT_ID`)
+      - `GOOGLE_IOS_CLIENT_ID` (for iOS)
+      - `APPLE_BUNDLE_ID` (for iOS)
+      - `APPLE_WEB_CLIENT_ID` (Apple Services ID for web)
 
 4.  **Run the development server:**
     ```bash
@@ -78,7 +86,14 @@ The repository is a monorepo containing three main projects:
     npm install
     ```
 
-3.  **Run the development server:**
+3.  **Configure environment variables:**
+    - Copy `frontend/.env.example` to `frontend/.env`
+    - For dev, you can leave `VITE_API_BASE_URL` empty and use the dev proxy to `http://localhost:3000` (configure `VITE_API_PROXY` if needed).
+    - If enabling Google/Apple sign-in on the web, set:
+      - `VITE_GOOGLE_CLIENT_ID` and ensure backend `GOOGLE_WEB_CLIENT_ID` matches exactly
+      - `VITE_APPLE_CLIENT_ID` and `VITE_APPLE_REDIRECT_URI` and ensure backend `APPLE_WEB_CLIENT_ID` matches that Services ID
+
+4.  **Run the development server:**
     ```bash
     npm run dev
     ```
@@ -99,7 +114,11 @@ The native iOS application is located in the `ios/` directory.
     ```
 
 2.  **Configure the backend URL:**
-    You will need to update the API client within the Xcode project to point to your running backend instance (e.g., `http://localhost:3000`).
+    - Edit `ios/IOS-expense-tracker/Info.plist` `API_BASE_URL` to point to your backend
+    - In debug builds, the app falls back to `AppConfig.baseURL` if `API_BASE_URL` is not set
+    - For social sign-in, ensure:
+      - Google iOS client ID matches backend `GOOGLE_IOS_CLIENT_ID`
+      - Apple bundle ID matches backend `APPLE_BUNDLE_ID`
 
 3.  **Build and run:**
     Select a simulator or a connected device and press the "Run" button in Xcode.

@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { NavBar } from '@/components/NavBar'
-import { Sidebar } from '@/components/Sidebar'
 import { Footer } from '@/components/Footer'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { Login } from '@/pages/Login'
@@ -22,7 +21,6 @@ export default function App() {
   return (
     <div className="app layout">
       <NavBar />
-      <Sidebar />
       <main className="container content">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" />} />

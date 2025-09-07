@@ -25,7 +25,7 @@ export function RulesPage() {
   async function save() {
     try {
       const payload: any = { ...draft, set: { ...draft.set, tags: draft.set.tags?.filter(Boolean) } }
-      const res = await api.saveRule(payload)
+      await api.saveRule(payload)
       toast('Rule saved', 'success')
       setDraft({ name: '', enabled: true, when: { field: 'description', type: 'contains', value: '' }, set: {} })
       await load()

@@ -7,7 +7,6 @@ type Integration = { provider: string; extra?: any; updatedAt?: string }
 
 export function IntegrationsPage() {
   const [items, setItems] = useState<Integration[]>([])
-  const [plaidToken, setPlaidToken] = useState<string | null>(null)
 
   async function load() {
     const res = await api.listIntegrations()
@@ -17,8 +16,7 @@ export function IntegrationsPage() {
 
   async function connectPlaid() {
     try {
-      const t = await api.createPlaidLinkToken()
-      setPlaidToken(t.link_token || '')
+      await api.createPlaidLinkToken()
       toast('Plaid link token created (mock)', 'info')
       // In production: open Plaid Link with the token and call api.exchangePlaidPublicToken
     } catch (e: any) { toast(e.message || 'Plaid init failed', 'error') }

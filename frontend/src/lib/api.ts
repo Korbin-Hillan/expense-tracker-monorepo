@@ -27,7 +27,7 @@ export type Transaction = {
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '' // use dev proxy when empty
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }

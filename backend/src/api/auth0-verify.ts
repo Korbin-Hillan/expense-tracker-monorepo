@@ -2,15 +2,19 @@ import "dotenv/config";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const APPLE_ISS = "https://appleid.apple.com";
-const APPLE_JWKS = createRemoteJWKSet(
-  new URL("https://appleid.apple.com/auth/keys")
-);
-const YOUR_IOS_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.korbinhillan.IOS-expense-tracker";
+const APPLE_JWKS = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+
+// Accept both iOS bundle ID and Apple Web Services ID for web sign-in
+const APPLE_IOS_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.korbinhillan.IOS-expense-tracker";
+const APPLE_WEB_CLIENT_ID = process.env.APPLE_WEB_CLIENT_ID; // e.g. com.your.bundleid.web (Services ID)
 
 export async function verifyAppleIdToken(idToken: string) {
+  const allowedAud = [APPLE_IOS_BUNDLE_ID, APPLE_WEB_CLIENT_ID].filter(
+    (v): v is string => Boolean(v)
+  );
   const { payload } = await jwtVerify(idToken, APPLE_JWKS, {
     issuer: APPLE_ISS,
-    audience: YOUR_IOS_BUNDLE_ID, // Apple’s aud is your bundleId / clientId
+    audience: allowedAud.length === 1 ? allowedAud[0] : allowedAud,
   });
   return payload; // contains sub, email (sometimes only first time), etc.
 }

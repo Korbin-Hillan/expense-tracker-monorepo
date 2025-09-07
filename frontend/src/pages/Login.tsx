@@ -1,63 +1,78 @@
-import { FormEvent, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { api } from '@/lib/api'
-import { auth } from '@/state/auth'
-import { GoogleSignInButton, AppleSignInButton } from '@/components/SocialAuth'
+import { Link, useNavigate } from 'react-router-dom';
+import { api } from '@/lib/api';
+import { auth } from '@/state/auth';
+import { GoogleSignInButton, AppleSignInButton } from '@/components/SocialAuth';
+import { useForm } from '@mantine/form';
+import { TextInput, PasswordInput, Button, Paper, Title, Text, Container, Stack, Alert, Divider } from '@mantine/core';
+import { useState } from 'react';
+import { IconAlertCircle } from '@tabler/icons-react';
 
 export function Login() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  const form = useForm({
+    initialValues: {
+      email: '',
+      password: '',
+    },
+    validate: {
+      email: (val) => (/^\S+@\S+$/.test(val) ? null : 'Invalid email'),
+      password: (val) => (val.length <= 6 ? 'Password should include at least 6 characters' : null),
+    },
+  });
+
+  const handleSubmit = async (values: typeof form.values) => {
+    setError(null);
     try {
-      const res = await api.login(email, password)
-      auth.setSession(res)
-      navigate('/dashboard')
+      const res = await api.login(values.email, values.password);
+      auth.setSession(res);
+      navigate('/dashboard');
     } catch (e: any) {
-      setError(e.message || 'Login failed')
-    } finally {
-      setLoading(false)
+      setError(e.message || 'Login failed');
     }
-  }
+  };
 
   return (
-    <div className="auth-grid container">
-      <section className="auth-hero">
-        <h1 className="hero-title">Welcome back</h1>
-        <p className="hero-subtitle">Track spending, plan budgets, and get AI insights to stay on top of your money.</p>
-        <ul className="hero-bullets">
-          <li>Clear dashboards and monthly summaries</li>
-          <li>Smart budgets with progress</li>
-          <li>AI insights and alerts</li>
-        </ul>
-      </section>
-      <div className="card auth-card">
-        <h2>Sign in</h2>
-        <form className="form" onSubmit={onSubmit}>
-          <div className="field">
-            <label>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" />
-          </div>
-          <div className="field">
-            <label>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••" />
-          </div>
-          {error && <div className="form-error">{error}</div>}
-          <button type="submit" disabled={loading}>{loading ? 'Logging in…' : 'Login'}</button>
+    <Container size={420} my={40}>
+      <Title ta="center">Welcome back!</Title>
+      <Text c="dimmed" size="sm" ta="center" mt={5}>
+        Do not have an account yet? <Link to="/register">Create account</Link>
+      </Text>
+
+      <Paper withBorder shadow="md" p={30} mt={30} radius="md">
+        <form onSubmit={form.onSubmit(handleSubmit)}>
+          <Stack gap="md">
+            <TextInput
+              required
+              label="Email"
+              placeholder="you@example.com"
+              {...form.getInputProps('email')}
+            />
+            <PasswordInput
+              required
+              label="Password"
+              placeholder="Your password"
+              {...form.getInputProps('password')}
+            />
+            {error && (
+              <Alert icon={<IconAlertCircle size="1rem" />} title="Login Error" color="red" variant="light">
+                {error}
+              </Alert>
+            )}
+            <Button type="submit" fullWidth mt="xl" loading={form.submitting}>
+              Sign in
+            </Button>
+          </Stack>
         </form>
-        <div className="divider"><span>or</span></div>
-        <div className="row" style={{ gap: 8, marginTop: 4, justifyContent: 'center' }}>
+
+        <Divider label="or continue with" labelPosition="center" my="lg" />
+
+        <Stack gap="md" mt="md" align="center">
           <GoogleSignInButton />
           <AppleSignInButton />
-        </div>
-        <p className="muted" style={{ marginTop: 12 }}>No account? <Link to="/register">Create one</Link></p>
-      </div>
-    </div>
-  )
+        </Stack>
+      </Paper>
+    </Container>
+  );
 }

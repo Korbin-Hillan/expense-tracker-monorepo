@@ -203,6 +203,7 @@ invalid-date,Test Transaction,abc
           userId: {} as any,
           type: 'expense' as const,
           amount: 4.50,
+          amountCents: 450,
           category: 'Food',
           note: 'Starbucks Coffee',
           date: new Date('2024-01-15'),
@@ -232,6 +233,7 @@ invalid-date,Test Transaction,abc
           userId: {} as any,
           type: 'expense' as const,
           amount: 5.50, // Different amount
+          amountCents: 550,
           category: 'Food',
           note: 'Starbucks Coffee',
           date: new Date('2024-01-15'),
@@ -264,7 +266,7 @@ invalid-date,Test Transaction,abc
       expect(result.amount).toBe(25.50);
       expect(result.category).toBe('Food');
       expect(result.note).toBe('Test note');
-      expect(result.date).toEqual(new Date('2024-01-15'));
+      expect(result.date).toEqual(new Date('2024-01-15T12:00:00.000Z'));
     });
   });
 });
